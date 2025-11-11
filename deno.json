@@ -1,5 +1,5 @@
 {
-  "name": "@justaos/orm",
+  "name": "@redvars/orm",
   "version": "10.1.0",
   "exports": "./mod.ts",
   "tasks": {
