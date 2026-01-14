@@ -79,7 +79,7 @@ export default class ORM {
       );
       await client.testConnection();
       return client;
-    } catch (error) {
+    } catch (error: any) {
       if (
         error.code === "DATABASE_DOES_NOT_EXISTS" &&
         this.#config.database &&

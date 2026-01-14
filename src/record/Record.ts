@@ -101,7 +101,7 @@ export default class Record {
     let savedRawRecord: TRecord;
     try {
       [savedRawRecord] = await this.#queryBuilder.execute();
-    } catch (err) {
+    } catch (err: any) {
       this.#logger.error(err);
       throw new RecordSaveError(
         this.#table.getDefinitionClone(),
@@ -140,7 +140,7 @@ export default class Record {
     let savedRawRecord: TRecord;
     try {
       [savedRawRecord] = await this.#queryBuilder.execute();
-    } catch (err) {
+    } catch (err: any) {
       this.#logger.error(err);
       throw new RecordSaveError(
         this.#table.getDefinitionClone(),
@@ -172,7 +172,7 @@ export default class Record {
 
     try {
       await this.#queryBuilder.execute();
-    } catch (err) {
+    } catch (err: any) {
       this.#logger.error(err);
       throw new RecordSaveError(
         this.#table.getDefinitionClone(),
@@ -229,7 +229,7 @@ export default class Record {
       const value = rawRecord[columnSchema.getName()];
       try {
         await columnSchema.getColumnType().validateValue(value);
-      } catch (err) {
+      } catch (err: any) {
         fieldErrors.push(
           new FieldValidationError(
             columnSchema.getDefinitionClone(),

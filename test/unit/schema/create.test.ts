@@ -36,7 +36,7 @@ describe({
       try {
         client.table("unknown_table");
         assert(false, "Table should not exists");
-      } catch (error) {
+      } catch (error: any) {
         assertStrictEquals(
           error.code,
           "TABLE_DEFINITION_VALIDATION",
@@ -116,7 +116,7 @@ describe({
             },
           ],
         });
-      } catch (error) {
+      } catch (error: any) {
         assertStrictEquals(
           error.cause.columns[0].name,
           "unknown",
@@ -136,7 +136,7 @@ describe({
             },
           ],
         });
-      } catch (error) {
+      } catch (error: any) {
         assertStrictEquals(
           error.cause.columns[0].name,
           "invalid name",
@@ -215,7 +215,7 @@ describe({
         const personRecord = personTable.createNewRecord();
         await personRecord.insert();
         assertValue = true;
-      } catch (error) {
+      } catch (error: any) {
         logger.error(error.message);
       }
       assert(assertValue);
@@ -228,7 +228,7 @@ describe({
         const employeeRecord = employeeTable.createNewRecord();
         await employeeRecord.insert();
         assertValue = true;
-      } catch (error) {
+      } catch (error: any) {
         logger.error(error.message);
       }
       assert(assertValue);
