@@ -71,7 +71,7 @@ export default class DatabaseConnectionPool {
       this.#logger.info(
         `Connected to ${this.#config.database} database successfully`,
       );
-    } catch (err) {
+    } catch (err: any) {
       if (this.#pgPool) this.#pgPool.end();
       this.#logger.error(err.message);
       if (err.code === "3D000") {

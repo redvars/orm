@@ -6,9 +6,8 @@ type ORMErrorCode =
   | "RECORD_VALIDATION";
 
 export default class ORMError extends Error {
-  public readonly name: string;
   public readonly code: ORMErrorCode;
-  public readonly cause?: any;
+  public override readonly cause?: any;
 
   constructor(code: ORMErrorCode, message: string, cause?: any) {
     super(message);

@@ -90,7 +90,7 @@ describe({
           "this is computed",
           "read interceptor not computed the value",
         );
-      } catch (err) {
+      } catch (err: any) {
         logger.info(err.message + "");
       }
     });

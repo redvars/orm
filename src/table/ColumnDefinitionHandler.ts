@@ -123,7 +123,7 @@ export default class ColumnDefinitionHandler {
     } else {
       try {
         this.getColumnType().validateDefinition(this.#columnDefinition);
-      } catch (e) {
+      } catch (e: any) {
         error.errors.push({
           message: e.message,
         });
