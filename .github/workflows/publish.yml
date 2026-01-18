@@ -2,13 +2,17 @@ name: Publish
 
 on:
   push:
-    branches: [main]
+    branches: [ main ]
     tags:
       - "v*"
 
 jobs:
   publish:
     runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        deno: [ 2.6.5 ]
 
     permissions:
       contents: write
@@ -18,8 +22,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up Deno
-        uses: denoland/setup-deno@v1
+      - name: Setup Deno
+        uses: denolib/setup-deno@v2
+        with:
+          deno-version: ${{ matrix.deno }}
 
       - name: Publish (dry run)
         if: github.event_name == 'push'
