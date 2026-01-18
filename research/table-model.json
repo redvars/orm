@@ -1,5 +1,5 @@
 {
-  "$id": "https://justaos.com/table.schema.json",
+  "$id": "https://redvars.com/table.schema.json",
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "Person",
   "type": "object",

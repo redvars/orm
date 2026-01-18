@@ -1,12 +1,12 @@
-# JUSTAOS's ORM
+# RESVARS ORM
 
-![GitHub release (with filter)](https://img.shields.io/github/v/release/justaos/orm?label=Release)
-[![Build](https://github.com/justaos/orm/workflows/Build/badge.svg)](https://github.com/justaos/orm/actions?workflow=Build)
-[![Coverage](https://codecov.io/gh/justaos/orm/branch/main/graph/badge.svg?token=OzlniGFmNp)](https://codecov.io/gh/justaos/orm)
-[![License](https://img.shields.io/github/license/justaos/orm.svg)](/LICENSE)
-[![Contributors](https://img.shields.io/github/contributors/justaos/orm.svg)]()
+![GitHub release (with filter)](https://img.shields.io/github/v/release/redvars/orm?label=Release)
+[![Build](https://github.com/redvars/orm/workflows/Build/badge.svg)](https://github.com/redvars/orm/actions?workflow=Build)
+[![Coverage](https://codecov.io/gh/redvars/orm/branch/main/graph/badge.svg?token=OzlniGFmNp)](https://codecov.io/gh/redvars/orm)
+[![License](https://img.shields.io/github/license/redvars/orm.svg)](/LICENSE)
+[![Contributors](https://img.shields.io/github/contributors/redvars/orm.svg)]()
 
-JUSTAOS's ORM (Object Relational Mapping) tool is built for Deno and provides
+RESVARS ORM (Object Relational Mapping) tool is built for Deno and provides
 transparent persistence for JavaScript objects to Postgres database.
 
 - Supports all primitive data types (string, integer, float, boolean, date,

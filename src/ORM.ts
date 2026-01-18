@@ -19,7 +19,7 @@ import RegistriesHandler from "./RegistriesHandler.ts";
 import { generateUUID, validateUUID } from "./utils.ts";
 
 /**
- * JUSTAOS's ORM (Object Document Mapper) is built for Deno and provides transparent persistence for JavaScript objects to Postgres database.
+ * RESVARS ORM (Object Document Mapper) is built for Deno and provides transparent persistence for JavaScript objects to Postgres database.
  * - Supports all primitive data types (string, integer, float, boolean, date, object, array, etc).
  * - Supports custom data types.
  * - Supports table with multi-level inheritance.
