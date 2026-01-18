@@ -1,6 +1,8 @@
-import type { Logger } from "../deps.ts";
+import type { Logger, UUID4 } from "../deps.ts";
+import { uuid } from "../deps.ts";
 import * as minify from "npm:pg-minify@1.6.4";
 import type { DatabaseClient } from "./core/connection/DatabaseClient.ts";
+import { crypto } from "@std/crypto";
 
 export function logSQLQuery(logger: Logger, query: string): void {
   try {
@@ -64,3 +66,26 @@ export function getTableNameWithoutSchema(name: string): string {
 
 export const isEqualArray = (a: string[], b: string[]) =>
   JSON.stringify(a.sort()) === JSON.stringify(b.sort());
+
+export function generateUUID(): UUID4 {
+  return <UUID4> crypto.randomUUID();
+}
+
+export function validateUUID(id: string): boolean {
+  return uuid.validate(id);
+}
+
+export function findDuplicates(arr: string[]): string[] {
+  const seen = new Set<string>();
+  const duplicates = new Set<string>();
+
+  for (const item of arr) {
+    if (seen.has(item)) {
+      duplicates.add(item);
+    } else {
+      seen.add(item);
+    }
+  }
+
+  return Array.from(duplicates);
+}

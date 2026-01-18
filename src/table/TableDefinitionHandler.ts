@@ -1,4 +1,3 @@
-import { CommonUtils } from "../../deps.ts";
 import type {
   TColumnDefinitionStrict,
   TTableDefinition,
@@ -7,7 +6,7 @@ import type {
 import type ColumnDefinitionHandler from "./ColumnDefinitionHandler.ts";
 
 import TableDefinitionError from "../errors/TableDefinitionError.ts";
-import { getShortFormTableName } from "../utils.ts";
+import { findDuplicates, getShortFormTableName } from "../utils.ts";
 import Column from "./Column.ts";
 import type RegistriesHandler from "../RegistriesHandler.ts";
 
@@ -249,7 +248,7 @@ export default class TableDefinitionHandler {
     }
 
     const allColumnNames: string[] = this.getColumns().map((f) => f.getName());
-    const duplicates = CommonUtils.findDuplicates(allColumnNames);
+    const duplicates = findDuplicates(allColumnNames);
     if (duplicates.length) {
       tableDefinitionError.duplicateFields = `Duplicate fields -> ${
         duplicates.join(

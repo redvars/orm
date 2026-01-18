@@ -11,26 +11,19 @@
     "test": "deno task test:setUp && deno task test:unit && deno task test:tearDown",
     "bench": "deno test --allow-read --allow-env ./test/bench.ts"
   },
-  "exclude": [
-    "dist",
-    ".run",
-    ".github/",
-    "version.json"
-  ],
+  "exclude": ["dist", ".run", ".github/", "version.json"],
   "publish": {
-    "exclude": [
-      "test/"
-    ]
+    "exclude": ["test/"]
   },
   "test": {
-    "include": [
-      "test/"
-    ]
+    "include": ["test/"]
   },
   "imports": {
-    "@justaos/utils": "jsr:@justaos/utils@2.0.0",
+    "@redvars/utils": "jsr:@redvars/utils@^2.0.2",
     "@std/assert": "jsr:@std/assert@0.220.1",
+    "@std/crypto": "jsr:@std/crypto@^1.0.5",
     "@std/testing": "jsr:@std/testing@0.220.1",
+    "@std/uuid": "jsr:@std/uuid@^1.1.0",
     "@utility/types": "jsr:@utility/types@0.4.0",
     "pg": "npm:pg@8.11.5",
     "pg-cursor": "npm:pg-cursor@2.10.5",
