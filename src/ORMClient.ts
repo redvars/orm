@@ -23,7 +23,7 @@ import ORMError from "./errors/ORMError.ts";
  *
  * @example
  * ```typescript
- * import { ORMClient } from "@justaos/orm";
+ * import { ORMClient } from "@redvars/orm";
  * const connection: ORMClient = odm.connect();
  * const table = connection.table("users");
  * ```

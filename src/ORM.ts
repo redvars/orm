@@ -27,7 +27,7 @@ import { generateUUID, validateUUID } from "./utils.ts";
  *
  * @example
  * ```ts
- * import { ORM } from "@justaos/orm";
+ * import { ORM } from "@redvars/orm";
  *
  * const odm = new ORM({
  *  hostname: "localhost",

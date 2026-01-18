@@ -16,7 +16,7 @@ transparent persistence for JavaScript objects to Postgres database.
 - Also supports interception on operations (create, read, update and delete).
 
 ```ts
-import { ORM } from "jsr:@justaos/orm";
+import { ORM } from "jsr:@redvars/orm";
 ```
 
 ## Database connection
