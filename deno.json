@@ -1,6 +1,6 @@
 {
   "name": "@redvars/orm",
-  "version": "10.1.2",
+  "version": "10.1.3",
   "exports": "./mod.ts",
   "tasks": {
     "coverage:unit": "deno task test:unit --coverage=./dist/coverage && deno coverage --include=src --lcov ./dist/coverage > ./dist/coverage/lcov.info",
