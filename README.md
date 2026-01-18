@@ -1,7 +1,7 @@
 # RESVARS ORM
 
 ![GitHub release (with filter)](https://img.shields.io/github/v/release/redvars/orm?label=Release)
-[![Build](https://github.com/redvars/orm/workflows/Build/badge.svg)](https://github.com/redvars/orm/actions?workflow=Test)
+[![Test](https://github.com/redvars/orm/workflows/Test/badge.svg)](https://github.com/redvars/orm/actions?workflow=Test)
 [![Coverage](https://codecov.io/gh/redvars/orm/branch/main/graph/badge.svg?token=OzlniGFmNp)](https://codecov.io/gh/redvars/orm)
 [![License](https://img.shields.io/github/license/redvars/orm.svg)](/LICENSE)
 [![Contributors](https://img.shields.io/github/contributors/redvars/orm.svg)]()
