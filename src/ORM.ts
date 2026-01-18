@@ -14,8 +14,9 @@ import UUIDDataType from "./data-types/types/UUIDDataType.ts";
 import type RecordInterceptor from "./operation-interceptor/RecordInterceptor.ts";
 import TimeDataType from "./data-types/types/TimeDataType.ts";
 import CharDataType from "./data-types/types/CharDataType.ts";
-import { CommonUtils, type Logger, LoggerUtils, type UUID4 } from "../deps.ts";
+import { type Logger, LoggerUtils, type UUID4 } from "../deps.ts";
 import RegistriesHandler from "./RegistriesHandler.ts";
+import { generateUUID, validateUUID } from "./utils.ts";
 
 /**
  * JUSTAOS's ORM (Object Document Mapper) is built for Deno and provides transparent persistence for JavaScript objects to Postgres database.
@@ -55,7 +56,7 @@ export default class ORM {
    * Generates a new record ID.
    */
   static generateRecordId(): UUID4 {
-    return <UUID4> CommonUtils.generateUUID();
+    return <UUID4> generateUUID();
   }
 
   /**
@@ -63,7 +64,7 @@ export default class ORM {
    * @param id
    */
   static isValidRecordId(id: UUID4): boolean {
-    return CommonUtils.validateUUID(id);
+    return validateUUID(id);
   }
 
   /**

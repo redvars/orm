@@ -10,7 +10,7 @@ import type ColumnDefinitionHandler from "../table/ColumnDefinitionHandler.ts";
 import { RecordSaveError } from "../errors/RecordSaveError.ts";
 import type Query from "../query/Query.ts";
 import { FieldValidationError } from "../errors/FieldValidationError.ts";
-import { logSQLQuery } from "../utils.ts";
+import { generateUUID, logSQLQuery } from "../utils.ts";
 import ORMError from "../errors/ORMError.ts";
 
 export default class Record {
@@ -211,7 +211,7 @@ export default class Record {
     this.#table.getColumns().map((field: ColumnDefinitionHandler) => {
       this.set(field.getName(), field.getDefaultValue());
     });
-    this.#record["id"] = <UUID4> CommonUtils.generateUUID();
+    this.#record["id"] = <UUID4> generateUUID();
     this.#record["_table"] = this.#table.getName();
     this.#isNew = true;
   }
