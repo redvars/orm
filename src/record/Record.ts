@@ -126,7 +126,7 @@ export default class Record {
     const recordJson = record.toJSON();
     await this.#validateRecord(recordJson);
     this.#queryBuilder.update();
-    this.#queryBuilder.into(this.#table.getName());
+    this.#queryBuilder.into(record.get("_table"));
     this.#queryBuilder.where("id", record.getID());
     Object.keys(this.#columnsModified).forEach((col) => {
       if (col !== "id") {
@@ -165,7 +165,7 @@ export default class Record {
     const [record] = await this.#table.intercept("BEFORE_DELETE", [this]);
 
     this.#queryBuilder.delete();
-    this.#queryBuilder.from(this.#table.getName());
+    this.#queryBuilder.from(record.get("_table"));
     this.#queryBuilder.where("id", record.getID());
 
     logSQLQuery(this.#logger, this.#queryBuilder.getSQLQuery());

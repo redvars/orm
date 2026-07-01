@@ -5,6 +5,7 @@ import type {
   TTableDefinitionStrict,
 } from "./types.ts";
 import DatabaseConnectionPool from "./core/connection/DatabaseConnectionPool.ts";
+import type { DatabaseClient } from "./core/connection/DatabaseClient.ts";
 import type { TDatabaseConfiguration } from "./core/types.ts";
 import TableDefinitionHandler from "./table/TableDefinitionHandler.ts";
 
@@ -117,13 +118,9 @@ export default class ORMClient {
         );
       }
 
-      const [{ exists: tableExists }] = await runSQLQuery(
+      const tableExists = await this.#tableExists(
         reserved,
-        `SELECT EXISTS(SELECT
-                       FROM information_schema.tables
-                       WHERE table_name = '${tableDefinitionHandler.getTableName()}'
-                         AND table_schema = '${tableDefinitionHandler.getSchemaName()}'
-          LIMIT 1);`,
+        tableDefinitionHandler,
       );
 
       if (!tableExists) {
@@ -144,95 +141,133 @@ export default class ORMClient {
           createQuery.addUnique(unique);
         }
 
-        const inherits = tableDefinitionHandler.getInherits();
-        if (inherits) {
-          createQuery.inherits(inherits);
-        }
         logSQLQuery(this.#logger, createQuery.getSQLQuery());
         await createQuery.execute();
       } else {
-        const columns = await runSQLQuery(
-          reserved,
-          `SELECT column_name
-           FROM information_schema.columns
-           WHERE table_schema = '${tableDefinitionHandler.getSchemaName()}'
-             AND table_name = '${tableDefinitionHandler.getTableName()}';`,
-        );
-        const existingColumnNames = columns.map(
-          (column: { column_name: string }) => column.column_name,
-        );
-        const columnSchemas = tableDefinitionHandler.getOwnColumns();
+        await this.#alterTableIfNeeded(reserved, tableDefinitionHandler);
 
-        const alterQuery = new Query(this.#pool);
-        alterQuery.alter(tableDefinitionHandler.getName());
-
-        let runAlterQuery = false;
-        // Create new columns
-        if (columnSchemas.length > existingColumnNames.length) {
-          for (const column of tableDefinitionHandler.getColumns()) {
-            const columnDefinition = column.getDefinitionClone();
-            if (!existingColumnNames.includes(column.getName())) {
-              runAlterQuery = true;
-              alterQuery.addColumn({
-                table: column.getTableName(),
-                name: column.getName(),
-                native_type: column.getNativeType(),
-                not_null: column.isNotNull(),
-                unique: column.isUnique(),
-                foreign_key: columnDefinition.foreign_key,
-              });
-            }
-          }
-        }
-
-        const existingUniqueConstraintColumns = await runSQLQuery(
-          reserved,
-          `SELECT constraint_name, column_name FROM information_schema.constraint_column_usage
-          WHERE constraint_name IN (
-            SELECT constraint_name FROM information_schema.table_constraints
-          WHERE table_schema='public' AND table_name='department' AND constraint_type='UNIQUE'
-        );`,
-        );
-
-        let existingUniqueConstraints: any = {};
-
-        existingUniqueConstraintColumns.forEach((constraint: any) => {
-          existingUniqueConstraints[constraint.constraint_name] =
-            existingUniqueConstraints[constraint.constraint_name] || [];
-
-          existingUniqueConstraints[constraint.constraint_name].push(
-            constraint.column_name,
+        // Postgres no longer propagates newly added ancestor columns to
+        // descendant tables (there is no physical INHERITS relation), so any
+        // already-existing descendant table must be altered here too.
+        for (
+          const descendantName of tableDefinitionHandler.getDescendantTables()
+        ) {
+          const descendantDefinition = this.#registriesHandler
+            .getTableDefinition(descendantName);
+          if (!descendantDefinition) continue;
+          const descendantHandler = new TableDefinitionHandler(
+            descendantDefinition,
+            this.#registriesHandler,
           );
-        });
-
-        existingUniqueConstraints = Object.values(existingUniqueConstraints);
-
-        if (existingUniqueConstraints.length) {
-          const uniqueConstraints = tableDefinitionHandler
-            .getUniqueConstraints();
-
-          for (const unique of uniqueConstraints) {
-            let exists = false;
-            for (const existingUniqueConstraint of existingUniqueConstraints) {
-              if (isEqualArray(existingUniqueConstraint, unique)) {
-                exists = true;
-                break;
-              }
-            }
-            if (!exists) {
-              runAlterQuery = true;
-              alterQuery.addUnique(unique);
-            }
+          if (await this.#tableExists(reserved, descendantHandler)) {
+            await this.#alterTableIfNeeded(reserved, descendantHandler);
           }
-        }
-
-        if (runAlterQuery) {
-          logSQLQuery(this.#logger, alterQuery.getSQLQuery());
-          await alterQuery.execute();
         }
       }
     } finally {
       reserved.release();
+    }
+  }
+
+  async #tableExists(
+    reserved: DatabaseClient,
+    tableDefinitionHandler: TableDefinitionHandler,
+  ): Promise<boolean> {
+    const [{ exists }] = await runSQLQuery(
+      reserved,
+      `SELECT EXISTS(SELECT
+                     FROM information_schema.tables
+                     WHERE table_name = '${tableDefinitionHandler.getTableName()}'
+                       AND table_schema = '${tableDefinitionHandler.getSchemaName()}'
+        LIMIT 1);`,
+    );
+    return exists;
+  }
+
+  async #alterTableIfNeeded(
+    reserved: DatabaseClient,
+    tableDefinitionHandler: TableDefinitionHandler,
+  ): Promise<void> {
+    const columns = await runSQLQuery(
+      reserved,
+      `SELECT column_name
+       FROM information_schema.columns
+       WHERE table_schema = '${tableDefinitionHandler.getSchemaName()}'
+         AND table_name = '${tableDefinitionHandler.getTableName()}';`,
+    );
+    const existingColumnNames = columns.map(
+      (column: { column_name: string }) => column.column_name,
+    );
+    // Every table now physically declares its full merged column set (own +
+    // inherited), so the "does this table need new columns" comparison must
+    // use the merged list, not just this table's own columns.
+    const columnSchemas = tableDefinitionHandler.getColumns();
+
+    const alterQuery = new Query(this.#pool);
+    alterQuery.alter(tableDefinitionHandler.getName());
+
+    let runAlterQuery = false;
+    // Create new columns
+    if (columnSchemas.length > existingColumnNames.length) {
+      for (const column of tableDefinitionHandler.getColumns()) {
+        const columnDefinition = column.getDefinitionClone();
+        if (!existingColumnNames.includes(column.getName())) {
+          runAlterQuery = true;
+          alterQuery.addColumn({
+            table: column.getTableName(),
+            name: column.getName(),
+            native_type: column.getNativeType(),
+            not_null: column.isNotNull(),
+            unique: column.isUnique(),
+            foreign_key: columnDefinition.foreign_key,
+          });
+        }
+      }
+    }
+
+    const existingUniqueConstraintColumns = await runSQLQuery(
+      reserved,
+      `SELECT constraint_name, column_name FROM information_schema.constraint_column_usage
+      WHERE constraint_name IN (
+        SELECT constraint_name FROM information_schema.table_constraints
+      WHERE table_schema='${tableDefinitionHandler.getSchemaName()}' AND table_name='${tableDefinitionHandler.getTableName()}' AND constraint_type='UNIQUE'
+    );`,
+    );
+
+    let existingUniqueConstraints: any = {};
+
+    existingUniqueConstraintColumns.forEach((constraint: any) => {
+      existingUniqueConstraints[constraint.constraint_name] =
+        existingUniqueConstraints[constraint.constraint_name] || [];
+
+      existingUniqueConstraints[constraint.constraint_name].push(
+        constraint.column_name,
+      );
+    });
+
+    existingUniqueConstraints = Object.values(existingUniqueConstraints);
+
+    if (existingUniqueConstraints.length) {
+      const uniqueConstraints = tableDefinitionHandler.getUniqueConstraints();
+
+      for (const unique of uniqueConstraints) {
+        let exists = false;
+        for (const existingUniqueConstraint of existingUniqueConstraints) {
+          if (isEqualArray(existingUniqueConstraint, unique)) {
+            exists = true;
+            break;
+          }
+        }
+        if (!exists) {
+          runAlterQuery = true;
+          alterQuery.addUnique(unique);
+        }
+      }
+    }
+
+    if (runAlterQuery) {
+      logSQLQuery(this.#logger, alterQuery.getSQLQuery());
+      await alterQuery.execute();
     }
   }
 
@@ -254,8 +289,8 @@ export default class ORMClient {
    * @param context Context object
    */
   table(name: string, context?: TRecordInterceptorContext): Table {
-    const tableDefinition: TTableDefinitionStrict | undefined = this
-      .#registriesHandler.getTableDefinition(name);
+    const tableDefinition: TTableDefinitionStrict | undefined =
+      this.#registriesHandler.getTableDefinition(name);
     if (typeof tableDefinition === "undefined") {
       throw new ORMError(
         "TABLE_DEFINITION_VALIDATION",

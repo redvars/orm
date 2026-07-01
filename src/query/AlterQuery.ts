@@ -50,20 +50,13 @@ export class AlterQuery {
   }
 
   #prepareColumns(): string[] {
-    return this.#addColumns
-      .filter(
-        (column) => getFullFormTableName(column.table) === this.#tableName,
-      )
-      .map(this.#prepareColumn);
+    return this.#addColumns.map(this.#prepareColumn);
   }
 
   #prepareUnique(): string[] {
     const uniqueConstraints = [...this.#unique];
     const uniqueColumns = this.#addColumns.filter(
-      (column) =>
-        column.name != "id" &&
-        column.unique &&
-        getFullFormTableName(column.table) === this.#tableName,
+      (column) => column.name != "id" && column.unique,
     );
 
     for (const column of uniqueColumns) {

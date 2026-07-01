@@ -50,6 +50,15 @@ export default class Registry<T> {
   }
 
   /**
+   * Returns all items currently stored in the registry.
+   *
+   * @returns {T[]} The items in the registry.
+   */
+  values(): T[] {
+    return Array.from(this.registry.values());
+  }
+
+  /**
    * Adds an item to the registry.
    * The key for the item is determined by the getKey function passed to the constructor.
    *

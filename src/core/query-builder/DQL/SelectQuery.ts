@@ -203,15 +203,79 @@ export default class SelectQuery implements IQuery {
     return this;
   }
 
+  /**
+   * Builds the SELECT query. When the query targets a single table, this is a
+   * plain `SELECT ... FROM table ...` statement. When it targets more than one
+   * table (a polymorphic read across a table-inheritance hierarchy), each
+   * table is queried independently (same columns/WHERE) and the results are
+   * combined with `UNION ALL`; ordering/limiting/grouping is applied once to
+   * the combined result, since applying it per-branch would not produce
+   * correct results across the union.
+   */
   buildQuery(): string {
+    if (!this.#tables) {
+      throw ORMError.queryError(
+        "The table name is required for the SELECT Query. Please check and try again.",
+      );
+    }
+
+    const preparedStatement = this.#tables.length === 1
+      ? this.#prepareSingleTableStatement(this.#tables[0])
+      : this.#prepareUnionStatement(this.#tables);
+
+    return pgFormat(preparedStatement.sql, ...preparedStatement.values);
+  }
+
+  #prepareSingleTableStatement(table: string): TPreparedStatement {
+    const preparedStatement = this.#prepareSelectFromStatement(table);
+    this.#applyClauses(preparedStatement, [
+      this.#whereClause,
+      this.#groupByClause,
+      this.#orderByClause,
+      this.#limitClause,
+      this.#offsetClause,
+    ]);
+    return preparedStatement;
+  }
+
+  /**
+   * Combines a `SELECT ... FROM table ...WHERE` statement per table with
+   * `UNION ALL`, deferring rendering until the single, final `pgFormat` call
+   * in `buildQuery()` - rendering each branch separately and splicing the
+   * resulting SQL text back into an outer template would re-scan any `%`
+   * characters that legitimately occur in already-escaped literal values
+   * (e.g. a `LIKE` pattern) as format specifiers.
+   */
+  #prepareUnionStatement(tables: string[]): TPreparedStatement {
+    const preparedStatement: TPreparedStatement = { sql: "", values: [] };
+
+    preparedStatement.sql += "SELECT * FROM (";
+    tables.forEach((table, index) => {
+      if (index > 0) preparedStatement.sql += " UNION ALL ";
+      const branchStatement = this.#prepareSelectFromStatement(table);
+      this.#applyClauses(branchStatement, [this.#whereClause]);
+      preparedStatement.sql += branchStatement.sql;
+      preparedStatement.values.push(...branchStatement.values);
+    });
+    preparedStatement.sql += ") AS %I";
+    preparedStatement.values.push("combined");
+
+    this.#applyClauses(preparedStatement, [
+      this.#groupByClause,
+      this.#orderByClause,
+      this.#limitClause,
+      this.#offsetClause,
+    ]);
+
+    return preparedStatement;
+  }
+
+  #prepareSelectFromStatement(table: string): TPreparedStatement {
     const preparedStatement: TPreparedStatement = {
       sql: "",
       values: [],
     };
 
-    /**
-     * SELECT column1, column2, ...
-     */
     preparedStatement.sql += "SELECT ";
     if (this.#columnsClause) {
       const columnsPreparedStatement = this.#columnsClause.prepareStatement();
@@ -219,25 +283,16 @@ export default class SelectQuery implements IQuery {
       preparedStatement.values.push(...columnsPreparedStatement.values);
     }
 
-    /**
-     * FROM table_name1, table_name2, ...
-     */
-    if (!this.#tables) {
-      throw ORMError.queryError(
-        "The table name is required for the SELECT Query. Please check and try again.",
-      );
-    }
     preparedStatement.sql += " FROM %s";
-    preparedStatement.values.push(this.#tables);
+    preparedStatement.values.push(table);
 
-    const clauses: (IClause | undefined)[] = [
-      this.#whereClause,
-      this.#groupByClause,
-      this.#orderByClause,
-      this.#limitClause,
-      this.#offsetClause,
-    ];
+    return preparedStatement;
+  }
 
+  #applyClauses(
+    preparedStatement: TPreparedStatement,
+    clauses: (IClause | undefined)[],
+  ): void {
     for (const clause of clauses) {
       if (clause) {
         const compoundStatement = clause.prepareStatement();
@@ -247,8 +302,6 @@ export default class SelectQuery implements IQuery {
         }
       }
     }
-
-    return pgFormat(preparedStatement.sql, ...preparedStatement.values);
   }
 
   buildCountQuery(): string {

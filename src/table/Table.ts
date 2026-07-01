@@ -156,6 +156,7 @@ export default class Table extends TableDefinitionHandler {
   }
 
   async count(): Promise<number> {
+    this.#refreshQueryTables();
     const sqlQuery = this.#query.getCountSQLQuery();
     logSQLQuery(this.#logger, sqlQuery);
     const [row] = await this.#query.execute(sqlQuery);
@@ -175,6 +176,8 @@ export default class Table extends TableDefinitionHandler {
    */
   async execute(): Promise<() => AsyncGenerator<Record, void, unknown>> {
     await this.intercept("BEFORE_SELECT", []);
+
+    this.#refreshQueryTables();
 
     logSQLQuery(this.#logger, this.#query.getSQLQuery());
 
@@ -213,6 +216,8 @@ export default class Table extends TableDefinitionHandler {
    */
   async toArray(): Promise<Record[]> {
     await this.intercept("BEFORE_SELECT", []);
+
+    this.#refreshQueryTables();
 
     logSQLQuery(this.#logger, this.#query.getSQLQuery());
 
@@ -433,9 +438,30 @@ export default class Table extends TableDefinitionHandler {
 
   #initializeQuery(): Query {
     const query = new Query(this.#pool);
-    query.select();
-    query.from(this.getName());
+    // Select this table's own column list explicitly (rather than `*`) so
+    // that, when this table has descendants, every UNION ALL branch selects
+    // the same columns in the same order - each descendant physically
+    // declares more columns than this table alone, so `*` would produce a
+    // mismatched column count across branches.
+    query.select(this.getColumnNames());
+    this.#applyQueryTables(query);
     return query;
+  }
+
+  /**
+   * Refreshes the query's FROM table list to this table plus its current
+   * descendants, without disturbing any where/order/limit/offset state
+   * already accumulated on the query. Descendant tables can be defined after
+   * this `Table` instance (and its initial query) was constructed, so the
+   * table list must be re-resolved right before each terminal read rather
+   * than fixed once at construction time.
+   */
+  #refreshQueryTables(): void {
+    this.#applyQueryTables(this.#query);
+  }
+
+  #applyQueryTables(query: Query): void {
+    query.from(this.getName(), ...this.getDescendantTables());
   }
 
   #getQuery() {

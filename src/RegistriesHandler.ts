@@ -53,6 +53,10 @@ export default class RegistriesHandler {
     this.#tableDefinitionRegistry.delete(tableName);
   }
 
+  getAllTableDefinitions(): TTableDefinitionStrict[] {
+    return this.#tableDefinitionRegistry.values();
+  }
+
   addInterceptor(operationInterceptor: RecordInterceptor): void {
     this.#operationInterceptorService.addInterceptor(operationInterceptor);
   }

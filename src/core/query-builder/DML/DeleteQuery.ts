@@ -12,7 +12,7 @@ export default class DeleteQuery implements IQuery {
 
   constructor() {}
 
-  from(tableName: string): DeleteQuery {
+  from(tableName: string, ..._otherNames: string[]): DeleteQuery {
     this.#fromTable = getFullFormTableName(tableName);
     return this;
   }

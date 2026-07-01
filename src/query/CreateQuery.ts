@@ -8,8 +8,6 @@ export class CreateQuery {
 
   #unique: string[][] = [];
 
-  #inherits?: string;
-
   constructor(tableName: string) {
     this.#tableName = getFullFormTableName(tableName);
   }
@@ -25,11 +23,6 @@ export class CreateQuery {
     return this;
   }
 
-  inherits(tableName: string): CreateQuery {
-    this.#inherits = getFullFormTableName(tableName);
-    return this;
-  }
-
   buildQuery(): string {
     const statements = this.#prepareColumns();
     statements.push(...this.#prepareUnique());
@@ -39,7 +32,6 @@ export class CreateQuery {
     query += ` (`;
     query += statements.join(", ");
     query += `)`;
-    query += this.#prepareInherits();
     return query;
   }
 
@@ -61,23 +53,13 @@ export class CreateQuery {
   }
 
   #prepareColumns(): string[] {
-    return this.#columns
-      .filter((column) =>
-        getFullFormTableName(column.table) === this.#tableName
-      )
-      .map(this.#prepareColumn);
-  }
-
-  #prepareInherits(): string {
-    if (!this.#inherits) return "";
-    return ` INHERITS (${this.#inherits})`;
+    return this.#columns.map(this.#prepareColumn);
   }
 
   #prepareUnique(): string[] {
     const uniqueConstraints = [...this.#unique];
     const uniqueColumns = this.#columns.filter((column) =>
-      column.name != "id" && column.unique &&
-      getFullFormTableName(column.table) === this.#tableName
+      column.name != "id" && column.unique
     );
     for (const column of uniqueColumns) {
       uniqueConstraints.push([column.name]);

@@ -75,13 +75,6 @@ export default class Query {
     return this;
   }
 
-  inherits(nameWithSchema: string | undefined): Query {
-    if (typeof nameWithSchema === "undefined") return this;
-    const query = <CreateQuery> this.#getQuery();
-    query.inherits(nameWithSchema);
-    return this;
-  }
-
   /* Insert query */
   insert(): Query {
     this.#query = new InsertQuery();
@@ -144,7 +137,7 @@ export default class Query {
     return this;
   }
 
-  from(name: string): Query {
+  from(name: string, ...otherNames: string[]): Query {
     if (!this.#query) {
       throw new ORMError("QUERY", "Query not initialized");
     }
@@ -153,7 +146,7 @@ export default class Query {
     }
 
     const query = <SelectQuery | DeleteQuery> this.#query;
-    query.from(name);
+    query.from(name, ...otherNames);
     return this;
   }
 

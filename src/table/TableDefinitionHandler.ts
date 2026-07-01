@@ -119,6 +119,30 @@ export default class TableDefinitionHandler {
     return extendedTables;
   }
 
+  /**
+   * Returns the names of all currently registered tables that inherit
+   * (directly or transitively) from this table.
+   * @returns {string[]}
+   */
+  getDescendantTables(): string[] {
+    const selfName = this.getName();
+    const descendants: string[] = [];
+    for (
+      const definition of this.#registriesHandler.getAllTableDefinitions()
+    ) {
+      const candidate = new TableDefinitionHandler(
+        definition,
+        this.#registriesHandler,
+      );
+      const candidateName = candidate.getName();
+      if (candidateName === selfName) continue;
+      if (candidate.getExtendedTables().includes(selfName)) {
+        descendants.push(candidateName);
+      }
+    }
+    return descendants;
+  }
+
   getBaseName(): string {
     let hostName = this.getName();
     const extendsTableName = this.getInherits();
