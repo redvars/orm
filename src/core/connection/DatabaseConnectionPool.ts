@@ -1,4 +1,4 @@
-import { type Logger, LoggerUtils, pg } from "../../../deps.ts";
+import { type Logger, LoggerUtils, pg, pgFormat } from "../../../deps.ts";
 import type { TDatabaseConfiguration } from "../types.ts";
 import ORMError from "../../errors/ORMError.ts";
 import { DatabaseClient } from "./DatabaseClient.ts";
@@ -118,7 +118,7 @@ export default class DatabaseConnectionPool {
     }
     const client = await this.connect();
     const result = await client.executeQuery(
-      `CREATE DATABASE "${databaseName}"`,
+      pgFormat(`CREATE DATABASE %I`, databaseName),
     );
     this.#logger.info(`Database ${databaseName} created successfully`);
     client.release();
@@ -137,7 +137,9 @@ export default class DatabaseConnectionPool {
       throw ORMError.generalError("No database name provided to drop.");
     }
     const client = await this.connect();
-    const result = await client.executeQuery(`DROP DATABASE "${databaseName}"`);
+    const result = await client.executeQuery(
+      pgFormat(`DROP DATABASE %I`, databaseName),
+    );
     this.#logger.info(`Database ${databaseName} dropped successfully`);
     client.release();
     return result;

@@ -21,14 +21,22 @@ export async function runSQLQuery(
   return rows;
 }
 
-export function getFullFormTableName(name: string): string {
+/**
+ * Splits a possibly schema-qualified table name into its schema and table
+ * parts, defaulting the schema to "public" when unqualified.
+ * @param name
+ * @returns {[string, string]}
+ */
+export function getSchemaAndTableName(name: string): [string, string] {
   const parts = name.split(".");
-  let schemaName = "public";
-  let tableName = name;
   if (parts.length == 2) {
-    schemaName = parts[0];
-    tableName = parts[1];
+    return [parts[0], parts[1]];
   }
+  return ["public", name];
+}
+
+export function getFullFormTableName(name: string): string {
+  const [schemaName, tableName] = getSchemaAndTableName(name);
   return `${schemaName}.${tableName}`;
 }
 

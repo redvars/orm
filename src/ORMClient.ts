@@ -1,4 +1,4 @@
-import type { Logger } from "../deps.ts";
+import { type Logger, pgFormat } from "../deps.ts";
 import type {
   TRecordInterceptorContext,
   TTableDefinition,
@@ -12,7 +12,12 @@ import TableDefinitionHandler from "./table/TableDefinitionHandler.ts";
 import Table from "./table/Table.ts";
 
 import Query from "./query/Query.ts";
-import { isEqualArray, logSQLQuery, runSQLQuery } from "./utils.ts";
+import {
+  getSchemaAndTableName,
+  isEqualArray,
+  logSQLQuery,
+  runSQLQuery,
+} from "./utils.ts";
 import type RegistriesHandler from "./RegistriesHandler.ts";
 import ORMError from "./errors/ORMError.ts";
 
@@ -102,16 +107,22 @@ export default class ORMClient {
     try {
       const [{ exists: schemaExists }] = await runSQLQuery(
         reserved,
-        `SELECT EXISTS(SELECT
+        pgFormat(
+          `SELECT EXISTS(SELECT
                        FROM information_schema.schemata
-                       WHERE schema_name = '${tableDefinitionHandler.getSchemaName()}'
+                       WHERE schema_name = %L
           LIMIT 1);`,
+          tableDefinitionHandler.getSchemaName(),
+        ),
       );
 
       if (!schemaExists) {
         await runSQLQuery(
           reserved,
-          `CREATE SCHEMA IF NOT EXISTS "${tableDefinitionHandler.getSchemaName()}";`,
+          pgFormat(
+            `CREATE SCHEMA IF NOT EXISTS %I;`,
+            tableDefinitionHandler.getSchemaName(),
+          ),
         );
         this.#logger.info(
           `Schema ${tableDefinitionHandler.getSchemaName()} created`,
@@ -175,11 +186,15 @@ export default class ORMClient {
   ): Promise<boolean> {
     const [{ exists }] = await runSQLQuery(
       reserved,
-      `SELECT EXISTS(SELECT
+      pgFormat(
+        `SELECT EXISTS(SELECT
                      FROM information_schema.tables
-                     WHERE table_name = '${tableDefinitionHandler.getTableName()}'
-                       AND table_schema = '${tableDefinitionHandler.getSchemaName()}'
+                     WHERE table_name = %L
+                       AND table_schema = %L
         LIMIT 1);`,
+        tableDefinitionHandler.getTableName(),
+        tableDefinitionHandler.getSchemaName(),
+      ),
     );
     return exists;
   }
@@ -190,10 +205,14 @@ export default class ORMClient {
   ): Promise<void> {
     const columns = await runSQLQuery(
       reserved,
-      `SELECT column_name
+      pgFormat(
+        `SELECT column_name
        FROM information_schema.columns
-       WHERE table_schema = '${tableDefinitionHandler.getSchemaName()}'
-         AND table_name = '${tableDefinitionHandler.getTableName()}';`,
+       WHERE table_schema = %L
+         AND table_name = %L;`,
+        tableDefinitionHandler.getSchemaName(),
+        tableDefinitionHandler.getTableName(),
+      ),
     );
     const existingColumnNames = columns.map(
       (column: { column_name: string }) => column.column_name,
@@ -227,11 +246,15 @@ export default class ORMClient {
 
     const existingUniqueConstraintColumns = await runSQLQuery(
       reserved,
-      `SELECT constraint_name, column_name FROM information_schema.constraint_column_usage
+      pgFormat(
+        `SELECT constraint_name, column_name FROM information_schema.constraint_column_usage
       WHERE constraint_name IN (
         SELECT constraint_name FROM information_schema.table_constraints
-      WHERE table_schema='${tableDefinitionHandler.getSchemaName()}' AND table_name='${tableDefinitionHandler.getTableName()}' AND constraint_type='UNIQUE'
+      WHERE table_schema=%L AND table_name=%L AND constraint_type='UNIQUE'
     );`,
+        tableDefinitionHandler.getSchemaName(),
+        tableDefinitionHandler.getTableName(),
+      ),
     );
 
     let existingUniqueConstraints: any = {};
@@ -274,9 +297,14 @@ export default class ORMClient {
   async dropTable(tableName: string): Promise<void> {
     const reserved = await this.#pool.connect();
     try {
+      const [schemaName, tableNameOnly] = getSchemaAndTableName(tableName);
       await runSQLQuery(
         reserved,
-        `DROP TABLE IF EXISTS "${tableName}" CASCADE;`,
+        pgFormat(
+          `DROP TABLE IF EXISTS %I.%I CASCADE;`,
+          schemaName,
+          tableNameOnly,
+        ),
       );
     } finally {
       reserved.release();
