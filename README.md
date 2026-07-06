@@ -2,7 +2,7 @@
 
 ![GitHub release (with filter)](https://img.shields.io/github/v/release/redvars/orm?label=Release)
 [![Test](https://github.com/redvars/orm/workflows/Test/badge.svg)](https://github.com/redvars/orm/actions?workflow=Test)
-[![Coverage](https://codecov.io/gh/redvars/orm/branch/main/graph/badge.svg?token=OzlniGFmNp)](https://codecov.io/gh/redvars/orm)
+[![Coverage](https://codecov.io/gh/redvars/orm/branch/main/graph/badge.svg)](https://codecov.io/gh/redvars/orm)
 [![License](https://img.shields.io/github/license/redvars/orm.svg)](/LICENSE)
 [![Contributors](https://img.shields.io/github/contributors/redvars/orm.svg)]()
 
@@ -295,7 +295,7 @@ const employees = await client.table("employee").with("department").toArray();
 for (const record of employees) {
   console.log(
     record.get("name") + " :: " +
-      JSON.stringify(record.getRelated("department")?.toJSON()),
+    JSON.stringify(record.getRelated("department")?.toJSON()),
   );
 }
 ```
