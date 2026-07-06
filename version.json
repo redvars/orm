@@ -1,5 +1,5 @@
 {
-  "version": "10.1.4",
+  "version": "10.2.0",
   "deno": true,
   "node": true,
   "jsr": true,

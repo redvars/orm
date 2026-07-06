@@ -1,4 +1,4 @@
-import { type Logger, pgFormat } from "../deps.ts";
+import { context, type Logger, pgFormat, SpanStatusCode, trace } from "../deps.ts";
 import type {
   TColumnDataType,
   TRecordInterceptorContext,
@@ -74,20 +74,34 @@ export default class ORMClient {
    * (DML) - `defineTable()`/`dropTable()` (DDL) are not supported inside a
    * transaction in this release, since they manage their own connection
    * reservation internally.
+   *
+   * The whole transaction runs inside its own OTel span, and the `Logger`
+   * handed to `TransactionClient` (and everything built from it - `Table`,
+   * `Record`, SQL debug logging) is bound to that span's context via
+   * `Logger.withContext()`, so every log line emitted during the transaction
+   * correlates with it in any OTel-compatible backend. This works even with
+   * no tracing SDK configured - `@opentelemetry/api` provides safe no-op
+   * tracers/spans, so nothing here forces a tracing backend on consumers.
    */
   async transaction<T>(
     callback: (tx: TransactionClient) => Promise<T>,
   ): Promise<T> {
     const client = await this.#pool.connect();
     await client.executeQuery("BEGIN");
+
+    const span = trace.getTracer("@redvars/orm").startSpan("orm.transaction");
+    const txContext = trace.setSpan(context.active(), span);
+    const txLogger = this.#logger.withContext(txContext);
+
     const tx = new TransactionClient(
       new TransactionConnection(client.withNonReleasingHandle()),
       this.#registriesHandler,
-      this.#logger,
+      txLogger,
     );
     try {
-      const result = await callback(tx);
+      const result = await context.with(txContext, () => callback(tx));
       await client.executeQuery("COMMIT");
+      span.setStatus({ code: SpanStatusCode.OK });
       return result;
     } catch (err) {
       try {
@@ -95,8 +109,11 @@ export default class ORMClient {
       } catch (rollbackErr) {
         this.#logger.error(rollbackErr);
       }
+      span.recordException(err as Error);
+      span.setStatus({ code: SpanStatusCode.ERROR, message: (err as Error)?.message });
       throw err;
     } finally {
+      span.end();
       client.release();
     }
   }

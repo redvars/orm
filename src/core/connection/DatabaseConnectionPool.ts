@@ -1,4 +1,5 @@
-import { type Logger, LoggerUtils, pg, pgFormat } from "../../../deps.ts";
+import { defaultLogManager, pg, pgFormat } from "../../../deps.ts";
+import type { Logger } from "../../../deps.ts";
 import type { TDatabaseConfiguration } from "../types.ts";
 import ORMError from "../../errors/ORMError.ts";
 import { DatabaseClient } from "./DatabaseClient.ts";
@@ -40,7 +41,7 @@ export default class DatabaseConnectionPool implements IConnectable {
       max: this.#config.max_connections || 20,
       connectionTimeoutMillis: this.#config.connect_timeout,
     });
-    this.#logger = logger || LoggerUtils.getLogger(DatabaseConnectionPool.name);
+    this.#logger = logger || defaultLogManager.getLogger(DatabaseConnectionPool.name);
   }
 
   /**

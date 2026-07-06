@@ -1,6 +1,6 @@
 import { ORM } from "../mod.ts";
-import { LoggerUtils } from "../deps.ts";
-const logger = LoggerUtils.defineLogger("ORMDemo", "DEBUG");
+import { defaultLogManager } from "../deps.ts";
+const logger = defaultLogManager.getLogger("ORMDemo", "DEBUG");
 
 export default function () {
   return new ORM(

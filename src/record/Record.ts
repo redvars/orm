@@ -1,9 +1,4 @@
-import {
-  CommonUtils,
-  type JSONValue,
-  type Logger,
-  type UUID4,
-} from "../../deps.ts";
+import { type JSONValue, type Logger, type UUID4 } from "../../deps.ts";
 import type { TRecord } from "../types.ts";
 import type Table from "../table/Table.ts";
 import type ColumnDefinitionHandler from "../table/ColumnDefinitionHandler.ts";

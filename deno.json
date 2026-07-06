@@ -1,6 +1,6 @@
 {
   "name": "@redvars/orm",
-  "version": "10.1.4",
+  "version": "10.2.0",
   "exports": "./mod.ts",
   "tasks": {
     "coverage:unit": "deno task test:unit --coverage=./dist/coverage && deno coverage --include=src --lcov ./dist/coverage > ./dist/coverage/lcov.info",
@@ -19,7 +19,8 @@
     "include": ["test/"]
   },
   "imports": {
-    "@redvars/utils": "jsr:@redvars/utils@^2.0.2",
+    "@opentelemetry/api": "npm:@opentelemetry/api@^1.9.0",
+    "@redvars/log": "jsr:@redvars/log@^0.2.0",
     "@std/assert": "jsr:@std/assert@0.220.1",
     "@std/crypto": "jsr:@std/crypto@^1.0.5",
     "@std/testing": "jsr:@std/testing@0.220.1",

@@ -3,9 +3,9 @@ import PgCursor from "pg-cursor";
 import pgFormat from "pg-format";
 import * as uuid from "@std/uuid";
 
-export { CommonUtils } from "@redvars/utils/common-utils";
-
-export { Logger, LoggerUtils } from "@redvars/utils/logger-utils";
+export { defaultLogManager } from "@redvars/log";
+export type { Logger } from "@redvars/log";
+export { context, SpanStatusCode, trace } from "@opentelemetry/api";
 export type {
   JSONArray,
   JSONObject,

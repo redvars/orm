@@ -419,12 +419,23 @@ unique constraints, then indexes — recording each to the ledger.
   `getSchemaAndTableName`, `getShortFormTableName`), `generateUUID` /
   `validateUUID`, `findDuplicates`, `isEqualArray`.
 - **`deps.ts`** — the single dependency barrel: `pg`, `pg-cursor`, `pg-format`,
-  `pg-minify`, `@std/uuid`, `@std/crypto`, and `@redvars/utils`
-  (`CommonUtils`, `Logger`, `LoggerUtils`) plus JSON/`UUID4` types from
-  `@utility/types`.
+  `pg-minify`, `@std/uuid`, `@std/crypto`, `@redvars/log`
+  (`defaultLogManager`, `Logger`), `@opentelemetry/api` (`trace`, `context`,
+  `SpanStatusCode`), plus JSON/`UUID4` types from `@utility/types`.
 - **Logging** — a `Logger` is threaded from `ORM` down through `ORMClient`/
   `TransactionClient`, `Table`, and `Record`; SQL is logged at `DEBUG` level,
-  destructive-migration warnings at `WARN`.
+  destructive-migration warnings at `WARN`. Falls back to
+  `@redvars/log`'s `defaultLogManager.getLogger(...)` when no `Logger` is
+  injected; `ORM` itself has no opinion on how an injected `Logger` was built
+  otherwise.
+- **Transaction tracing** — `ORMClient.transaction()` opens an OTel span
+  (`trace.getTracer("@redvars/orm").startSpan("orm.transaction")`) and binds
+  the `TransactionClient`'s `Logger` to that span's context via
+  `Logger.withContext()`, so every log line emitted during the transaction
+  (including `logSQLQuery`/`runSQLQuery` calls from `Table`/`Record`/`Query`,
+  unchanged) correlates with it in any OTel-compatible backend. Works with
+  zero tracing SDK configured — `@opentelemetry/api` alone provides safe
+  no-op tracers/spans — so this never forces a tracing backend on consumers.
 
 ---
 

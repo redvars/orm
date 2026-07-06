@@ -1,4 +1,4 @@
-import { LoggerUtils } from "../deps.ts";
+import { defaultLogManager } from "../deps.ts";
 import { ORM, type TDatabaseConfiguration } from "../mod.ts";
 import type ORMClient from "../src/ORMClient.ts";
 
@@ -52,4 +52,4 @@ export class Session {
   }
 }
 
-export const logger = LoggerUtils.defineLogger("ORMTest", "DEBUG");
+export const logger = defaultLogManager.getLogger("ORMTest", "DEBUG");

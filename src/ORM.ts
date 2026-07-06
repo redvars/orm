@@ -14,7 +14,8 @@ import UUIDDataType from "./data-types/types/UUIDDataType.ts";
 import type RecordInterceptor from "./operation-interceptor/RecordInterceptor.ts";
 import TimeDataType from "./data-types/types/TimeDataType.ts";
 import CharDataType from "./data-types/types/CharDataType.ts";
-import { type Logger, LoggerUtils, type UUID4 } from "../deps.ts";
+import { defaultLogManager } from "../deps.ts";
+import type { Logger, UUID4 } from "../deps.ts";
 import RegistriesHandler from "./RegistriesHandler.ts";
 import { generateUUID, validateUUID } from "./utils.ts";
 
@@ -49,7 +50,7 @@ export default class ORM {
   constructor(config: TDatabaseConfiguration, logger?: Logger) {
     this.#loadBuildInFieldTypes();
     this.#config = config;
-    this.#logger = logger || LoggerUtils.getLogger(ORM.name);
+    this.#logger = logger || defaultLogManager.getLogger(ORM.name);
   }
 
   /**
