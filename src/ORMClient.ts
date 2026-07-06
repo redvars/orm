@@ -1,15 +1,18 @@
 import { type Logger, pgFormat } from "../deps.ts";
 import type {
+  TColumnDataType,
   TRecordInterceptorContext,
   TTableDefinition,
   TTableDefinitionStrict,
 } from "./types.ts";
 import DatabaseConnectionPool from "./core/connection/DatabaseConnectionPool.ts";
 import type { DatabaseClient } from "./core/connection/DatabaseClient.ts";
+import TransactionConnection from "./core/connection/TransactionConnection.ts";
 import type { TDatabaseConfiguration } from "./core/types.ts";
 import TableDefinitionHandler from "./table/TableDefinitionHandler.ts";
 
 import Table from "./table/Table.ts";
+import TransactionClient from "./TransactionClient.ts";
 
 import Query from "./query/Query.ts";
 import {
@@ -20,6 +23,10 @@ import {
 } from "./utils.ts";
 import type RegistriesHandler from "./RegistriesHandler.ts";
 import ORMError from "./errors/ORMError.ts";
+import MigrationLedger from "./migration/MigrationLedger.ts";
+import { NATIVE_TYPE_TO_INFORMATION_SCHEMA_TYPE } from "./migration/typeMapping.ts";
+
+type TExistingColumn = { column_name: string; data_type: string };
 
 /**
  * The main class for interacting with the database.
@@ -39,6 +46,7 @@ export default class ORMClient {
   readonly #pool: DatabaseConnectionPool;
   readonly #registriesHandler: RegistriesHandler;
   readonly #logger: Logger;
+  readonly #migrationLedger = new MigrationLedger();
 
   constructor(
     logger: Logger,
@@ -57,6 +65,40 @@ export default class ORMClient {
 
   closeConnection(): void {
     this.#pool.end();
+  }
+
+  /**
+   * Runs `callback` against a single reserved connection wrapped in
+   * `BEGIN`/`COMMIT`, rolling back and rethrowing on any error. The
+   * `TransactionClient` passed to `callback` only exposes `table()`/`query()`
+   * (DML) - `defineTable()`/`dropTable()` (DDL) are not supported inside a
+   * transaction in this release, since they manage their own connection
+   * reservation internally.
+   */
+  async transaction<T>(
+    callback: (tx: TransactionClient) => Promise<T>,
+  ): Promise<T> {
+    const client = await this.#pool.connect();
+    await client.executeQuery("BEGIN");
+    const tx = new TransactionClient(
+      new TransactionConnection(client.withNonReleasingHandle()),
+      this.#registriesHandler,
+      this.#logger,
+    );
+    try {
+      const result = await callback(tx);
+      await client.executeQuery("COMMIT");
+      return result;
+    } catch (err) {
+      try {
+        await client.executeQuery("ROLLBACK");
+      } catch (rollbackErr) {
+        this.#logger.error(rollbackErr);
+      }
+      throw err;
+    } finally {
+      client.release();
+    }
   }
 
   async dropDatabase(): Promise<any> {
@@ -105,6 +147,8 @@ export default class ORMClient {
 
     const reserved = await this.#pool.connect();
     try {
+      await this.#migrationLedger.ensureLedgerTable(reserved);
+
       const [{ exists: schemaExists }] = await runSQLQuery(
         reserved,
         pgFormat(
@@ -154,6 +198,11 @@ export default class ORMClient {
 
         logSQLQuery(this.#logger, createQuery.getSQLQuery());
         await createQuery.execute();
+        await this.#migrationLedger.record(reserved, {
+          tableName: tableDefinitionHandler.getName(),
+          changeType: "CREATE_TABLE",
+        });
+        await this.#ensureIndexes(reserved, tableDefinitionHandler);
       } else {
         await this.#alterTableIfNeeded(reserved, tableDefinitionHandler);
 
@@ -203,10 +252,10 @@ export default class ORMClient {
     reserved: DatabaseClient,
     tableDefinitionHandler: TableDefinitionHandler,
   ): Promise<void> {
-    const columns = await runSQLQuery(
+    let columns: TExistingColumn[] = await runSQLQuery(
       reserved,
       pgFormat(
-        `SELECT column_name
+        `SELECT column_name, data_type
        FROM information_schema.columns
        WHERE table_schema = %L
          AND table_name = %L;`,
@@ -214,9 +263,13 @@ export default class ORMClient {
         tableDefinitionHandler.getTableName(),
       ),
     );
-    const existingColumnNames = columns.map(
-      (column: { column_name: string }) => column.column_name,
-    );
+
+    // Renames must run first, and update `columns` in place, so a renamed
+    // column isn't mistaken for "dropped old + added new" by the diffing
+    // below.
+    columns = await this.#processRenames(reserved, tableDefinitionHandler, columns);
+
+    const existingColumnNames = columns.map((column) => column.column_name);
     // Every table now physically declares its full merged column set (own +
     // inherited), so the "does this table need new columns" comparison must
     // use the merged list, not just this table's own columns.
@@ -226,12 +279,14 @@ export default class ORMClient {
     alterQuery.alter(tableDefinitionHandler.getName());
 
     let runAlterQuery = false;
+    const addedColumnNames: string[] = [];
     // Create new columns
     if (columnSchemas.length > existingColumnNames.length) {
       for (const column of tableDefinitionHandler.getColumns()) {
         const columnDefinition = column.getDefinitionClone();
         if (!existingColumnNames.includes(column.getName())) {
           runAlterQuery = true;
+          addedColumnNames.push(column.getName());
           alterQuery.addColumn({
             table: column.getTableName(),
             name: column.getName(),
@@ -243,6 +298,9 @@ export default class ORMClient {
         }
       }
     }
+
+    await this.#processColumnTypeChanges(reserved, tableDefinitionHandler, columns);
+    await this.#processDroppedColumns(reserved, tableDefinitionHandler, columns);
 
     const existingUniqueConstraintColumns = await runSQLQuery(
       reserved,
@@ -270,6 +328,7 @@ export default class ORMClient {
 
     existingUniqueConstraints = Object.values(existingUniqueConstraints);
 
+    const addedUniqueGroups: string[][] = [];
     if (existingUniqueConstraints.length) {
       const uniqueConstraints = tableDefinitionHandler.getUniqueConstraints();
 
@@ -283,6 +342,7 @@ export default class ORMClient {
         }
         if (!exists) {
           runAlterQuery = true;
+          addedUniqueGroups.push(unique);
           alterQuery.addUnique(unique);
         }
       }
@@ -291,6 +351,197 @@ export default class ORMClient {
     if (runAlterQuery) {
       logSQLQuery(this.#logger, alterQuery.getSQLQuery());
       await alterQuery.execute();
+      for (const name of addedColumnNames) {
+        await this.#migrationLedger.record(reserved, {
+          tableName: tableDefinitionHandler.getName(),
+          changeType: "ADD_COLUMN",
+          detail: { column: name },
+        });
+      }
+      for (const group of addedUniqueGroups) {
+        await this.#migrationLedger.record(reserved, {
+          tableName: tableDefinitionHandler.getName(),
+          changeType: "ADD_UNIQUE",
+          detail: { columns: group },
+        });
+      }
+    }
+
+    await this.#ensureIndexes(reserved, tableDefinitionHandler);
+  }
+
+  async #processRenames(
+    reserved: DatabaseClient,
+    tableDefinitionHandler: TableDefinitionHandler,
+    columns: TExistingColumn[],
+  ): Promise<TExistingColumn[]> {
+    const renames = tableDefinitionHandler.getRenames();
+    const existingNames = new Set(columns.map((column) => column.column_name));
+
+    for (const [oldName, newName] of Object.entries(renames)) {
+      if (!existingNames.has(oldName) || existingNames.has(newName)) continue;
+
+      const sql = pgFormat(
+        `ALTER TABLE %I.%I RENAME COLUMN %I TO %I`,
+        tableDefinitionHandler.getSchemaName(),
+        tableDefinitionHandler.getTableName(),
+        oldName,
+        newName,
+      );
+      logSQLQuery(this.#logger, sql);
+      await runSQLQuery(reserved, sql);
+
+      const column = columns.find((c) => c.column_name === oldName);
+      if (column) column.column_name = newName;
+      existingNames.delete(oldName);
+      existingNames.add(newName);
+
+      await this.#migrationLedger.record(reserved, {
+        tableName: tableDefinitionHandler.getName(),
+        changeType: "RENAME_COLUMN",
+        detail: { from: oldName, to: newName },
+      });
+    }
+
+    return columns;
+  }
+
+  async #processColumnTypeChanges(
+    reserved: DatabaseClient,
+    tableDefinitionHandler: TableDefinitionHandler,
+    columns: TExistingColumn[],
+  ): Promise<void> {
+    const physicalTypeByName = new Map(
+      columns.map((column) => [column.column_name, column.data_type]),
+    );
+
+    for (const column of tableDefinitionHandler.getColumns()) {
+      const physicalType = physicalTypeByName.get(column.getName());
+      if (!physicalType) continue; // not physically present yet (e.g. just added)
+
+      const nativeType = column.getNativeType();
+      const expectedType = (
+        NATIVE_TYPE_TO_INFORMATION_SCHEMA_TYPE as Record<string, string>
+      )[nativeType as TColumnDataType];
+      // Unrecognized (custom-registered) native type - can't reliably map it
+      // back to an information_schema type name, so skip type-change
+      // detection for this column rather than guess.
+      if (!expectedType || expectedType === physicalType) continue;
+
+      const sql = pgFormat(
+        `ALTER TABLE %I.%I ALTER COLUMN %I TYPE ${nativeType} USING %I::${nativeType}`,
+        tableDefinitionHandler.getSchemaName(),
+        tableDefinitionHandler.getTableName(),
+        column.getName(),
+        column.getName(),
+      );
+      try {
+        logSQLQuery(this.#logger, sql);
+        await runSQLQuery(reserved, sql);
+        await this.#migrationLedger.record(reserved, {
+          tableName: tableDefinitionHandler.getName(),
+          changeType: "ALTER_COLUMN_TYPE",
+          detail: { column: column.getName(), from: physicalType, to: nativeType },
+        });
+      } catch (error) {
+        // Best-effort: a lossy/incompatible cast shouldn't abort the whole
+        // defineTable() call.
+        this.#logger.error(error);
+      }
+    }
+  }
+
+  async #processDroppedColumns(
+    reserved: DatabaseClient,
+    tableDefinitionHandler: TableDefinitionHandler,
+    columns: TExistingColumn[],
+  ): Promise<void> {
+    const declaredNames = new Set(
+      tableDefinitionHandler.getColumns().map((column) => column.getName()),
+    );
+    const droppedNames = columns
+      .map((column) => column.column_name)
+      .filter((name) => !declaredNames.has(name));
+    if (!droppedNames.length) return;
+
+    if (!tableDefinitionHandler.allowsDestructiveMigrations()) {
+      this.#logger.warn(
+        `Table '${tableDefinitionHandler.getName()}' has columns no longer in its definition (${
+          droppedNames.join(", ")
+        }) - not dropping since allowDestructiveMigrations is not set.`,
+      );
+      return;
+    }
+
+    for (const name of droppedNames) {
+      const sql = pgFormat(
+        `ALTER TABLE %I.%I DROP COLUMN %I`,
+        tableDefinitionHandler.getSchemaName(),
+        tableDefinitionHandler.getTableName(),
+        name,
+      );
+      logSQLQuery(this.#logger, sql);
+      await runSQLQuery(reserved, sql);
+      await this.#migrationLedger.record(reserved, {
+        tableName: tableDefinitionHandler.getName(),
+        changeType: "DROP_COLUMN",
+        detail: { column: name },
+      });
+    }
+  }
+
+  #buildIndexName(tableName: string, columns: string[]): string {
+    return `idx_${tableName}_${columns.join("_")}`;
+  }
+
+  /**
+   * Creates any declared (non-unique) indexes that don't already exist on
+   * the physical table. Real indexes require their own `CREATE INDEX`
+   * statement (unlike `UNIQUE`, they can't be inlined into `CREATE TABLE`'s
+   * column list), so this runs independently after the table itself is
+   * created or altered.
+   */
+  async #ensureIndexes(
+    reserved: DatabaseClient,
+    tableDefinitionHandler: TableDefinitionHandler,
+  ): Promise<void> {
+    const declaredIndexes = tableDefinitionHandler.getIndexes();
+    if (!declaredIndexes.length) return;
+
+    const existing = await runSQLQuery(
+      reserved,
+      pgFormat(
+        `SELECT indexname FROM pg_indexes WHERE schemaname = %L AND tablename = %L;`,
+        tableDefinitionHandler.getSchemaName(),
+        tableDefinitionHandler.getTableName(),
+      ),
+    );
+    const existingNames = new Set(
+      existing.map((row: { indexname: string }) => row.indexname),
+    );
+
+    for (const columns of declaredIndexes) {
+      const indexName = this.#buildIndexName(
+        tableDefinitionHandler.getTableName(),
+        columns,
+      );
+      if (existingNames.has(indexName)) continue;
+
+      const placeholders = columns.map(() => "%I").join(", ");
+      const sql = pgFormat(
+        `CREATE INDEX IF NOT EXISTS %I ON %I.%I (${placeholders})`,
+        indexName,
+        tableDefinitionHandler.getSchemaName(),
+        tableDefinitionHandler.getTableName(),
+        ...columns,
+      );
+      logSQLQuery(this.#logger, sql);
+      await runSQLQuery(reserved, sql);
+      await this.#migrationLedger.record(reserved, {
+        tableName: tableDefinitionHandler.getName(),
+        changeType: "ADD_INDEX",
+        detail: { indexName, columns },
+      });
     }
   }
 

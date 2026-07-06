@@ -26,6 +26,7 @@ export default class ColumnDefinitionHandler {
     return {
       not_null: false,
       unique: false,
+      index: false,
       default: null,
       ...columnDefinition,
     };
@@ -37,6 +38,10 @@ export default class ColumnDefinitionHandler {
 
   isUnique(): boolean {
     return !!this.#columnDefinition.unique;
+  }
+
+  isIndexed(): boolean {
+    return !!this.#columnDefinition.index;
   }
 
   isNotNull(): boolean {

@@ -1,5 +1,5 @@
-import CompoundExpression from "../EXPRESSOINS/CompoundExpression.ts";
-import SimpleExpression from "../EXPRESSOINS/SimpleExpression.ts";
+import CompoundExpression from "../EXPRESSIONS/CompoundExpression.ts";
+import SimpleExpression from "../EXPRESSIONS/SimpleExpression.ts";
 import type {
   TLogicalOperator,
   TPreparedStatement,

@@ -2,8 +2,11 @@
 
 RESVARS ORM (`@redvars/orm`) is an Object Relational Mapping library built for
 **Deno** that provides transparent persistence of JavaScript objects to a
-**PostgreSQL** database. It supports primitive and custom data types, multi-level
-table inheritance, and interception of CRUD operations.
+**PostgreSQL** database. It supports primitive and custom data types,
+multi-level table inheritance (via an application-level `UNION ALL`, not
+native Postgres `INHERITS`), transactions, indexes, a lightweight schema
+migration/audit story, foreign-key eager-loading, and interception of CRUD
+operations.
 
 - **Runtime:** Deno (uses `Temporal`, private class fields `#`, `jsr:`/`npm:` imports)
 - **Database:** PostgreSQL, accessed through the `pg` npm driver
@@ -20,34 +23,38 @@ the public API to the raw SQL driver, while data (records) flows back up.
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │  Public API (mod.ts)                                         │
-│  ORM · ORMClient · Table · Record · Query · IDataType ·      │
-│  RecordInterceptor · Column · WhereClause · ORMError         │
+│  ORM · ORMClient · TransactionClient · Table · Record ·      │
+│  Query · IDataType · RecordInterceptor · Column ·             │
+│  WhereClause · ORMError                                       │
 └─────────────────────────────────────────────────────────────┘
               │
 ┌─────────────▼───────────────────────────────────────────────┐
 │  Domain / Object-mapping layer                               │
-│  ORM  →  ORMClient  →  Table  →  Record                      │
-│  (schema definition, records, CRUD, inheritance)             │
+│  ORM → ORMClient ⇄ TransactionClient → Table → Record         │
+│  (schema definition, records, CRUD, inheritance, relations)   │
 └─────────────────────────────────────────────────────────────┘
-              │                         │
-┌─────────────▼──────────┐   ┌──────────▼─────────────────────┐
-│  Registries            │   │  Interception                  │
-│  RegistriesHandler     │   │  DatabaseOperationInterceptor  │
-│   ├─ table definitions │   │  Service                       │
-│   ├─ data types        │   │   └─ RecordInterceptor(s)      │
-│   └─ interceptors      │   │                                │
-└────────────────────────┘   └────────────────────────────────┘
+              │              │                  │
+┌─────────────▼──────┐ ┌─────▼───────────┐ ┌────▼───────────┐
+│  Registries        │ │  Interception   │ │  Migration      │
+│  RegistriesHandler  │ │  DatabaseOper-  │ │  MigrationLedger│
+│   ├─ table defs     │ │  ationIntercep- │ │  (audit trail,  │
+│   ├─ data types     │ │  torService     │ │   type mapping) │
+│   └─ interceptors   │ │  └─ Record-     │ │                 │
+│                     │ │     Interceptor │ │                 │
+└─────────────────────┘ └─────────────────┘ └─────────────────┘
               │
 ┌─────────────▼───────────────────────────────────────────────┐
 │  Query-building layer                                        │
 │  query/Query (facade)                                        │
 │  core/query-builder → DQL(Select) · DML(Insert/Update/       │
-│  Delete) · DDL(Create/Alter) · CLAUSES · EXPRESSIONS         │
+│  Delete) · DDL(Create/Alter) · CLAUSES · EXPRESSIONS          │
 └─────────────────────────────────────────────────────────────┘
               │
 ┌─────────────▼───────────────────────────────────────────────┐
-│  Connection layer                                            │
-│  DatabaseConnectionPool (pg.Pool) → DatabaseClient           │
+│  Connection layer                                             │
+│  IConnectable ← DatabaseConnectionPool (pg.Pool)              │
+│              ← TransactionConnection (one reused client)      │
+│  → DatabaseClient                                             │
 └─────────────────────────────────────────────────────────────┘
               │
         ┌─────▼─────┐
@@ -78,25 +85,45 @@ The `RegistriesHandler` is created **once** in the `ORM` and shared with every
 `ORM` are visible everywhere.
 
 ### `ORMClient` (`src/ORMClient.ts`)
-Represents a live, connected session. Owns a `DatabaseConnectionPool`.
-Responsibilities:
+Represents a live, connected session. Owns a `DatabaseConnectionPool` and a
+`MigrationLedger`. Responsibilities:
 
 - **Connection lifecycle:** `testConnection()`, `closeConnection()`,
   `dropDatabase()`.
+- **Transactions — `transaction(callback)`:** reserves one `DatabaseClient`,
+  runs `BEGIN`, constructs a `TransactionClient` wrapping that single
+  connection (via `TransactionConnection`/`DatabaseClient.withNonReleasingHandle()`),
+  invokes `callback`, then `COMMIT`s on success or `ROLLBACK`s and rethrows on
+  error, always releasing the real connection exactly once. DDL
+  (`defineTable()`/`dropTable()`) is intentionally not exposed on
+  `TransactionClient` — it manages its own connection reservation and isn't
+  supported inside a transaction.
 - **Schema management — `defineTable()`:** the central DDL routine. It:
   1. Wraps the raw definition in a `TableDefinitionHandler` and validates it.
   2. Registers the (defaulted, cloned) definition in the registry.
-  3. Ensures the target schema exists (`CREATE SCHEMA IF NOT EXISTS`).
+  3. Ensures the migration ledger table and the target schema exist.
   4. If the table does not exist → builds a `CREATE TABLE` via `Query`
-     (columns, unique constraints, `INHERITS`).
-  5. If the table exists → diffs existing columns / unique constraints against
-     the definition and issues `ALTER TABLE` for additions (a lightweight
-     migration step).
+     (every column the table's hierarchy declares — own + inherited — plus
+     unique constraints and a `PRIMARY KEY`; no `INHERITS`), then creates any
+     declared indexes.
+  5. If the table exists → `#alterTableIfNeeded()` runs, in order: column
+     renames, `ADD COLUMN` for new columns, best-effort `ALTER COLUMN TYPE`
+     for changed built-in types, opt-in `DROP COLUMN` for removed columns,
+     `ADD UNIQUE` for new unique groups, then index creation — fanning out to
+     every already-existing descendant table too, since Postgres no longer
+     propagates schema changes through a real inheritance relationship.
+     Every applied change is recorded to `MigrationLedger`.
 - `defineTable()` also accepts a **decorated class** (see
   `TableSchemaDecorators`), reading its `__tableDefinition`.
 - `dropTable()`, `deregisterTable()`.
 - **Factories:** `table(name, context?)` returns a `Table`; `query()` returns a
   bare `Query`.
+
+### `TransactionClient` (`src/TransactionClient.ts`)
+A scoped peer of `ORMClient` for use inside `ORMClient.transaction()`. Shares
+the same `RegistriesHandler`/`Logger` but is constructed with an
+`IConnectable` that always resolves to the transaction's single reserved
+connection. Exposes only `table()`/`query()` (DML) — no DDL.
 
 ### `Table` (`src/table/Table.ts`)
 The primary object-mapping API for a single table. **Extends
@@ -106,11 +133,23 @@ gateway. Responsibilities:
 - **Record factories:** `createNewRecord()` (new, unsaved) and
   `convertRawRecordToRecord(raw)` (hydrate a DB row).
 - **Fluent query surface:** `where` / `andWhere` / `orWhere`, `limit`, `offset`,
-  `orderBy` — each delegates to an internal `Query` and returns `this` for
-  chaining.
-- **Terminal operations:** `toArray()` (materialize to `Record[]`), `execute()`
-  (returns an async-generator **cursor** factory for streaming), `count()`,
-  `getRecord(idOrColumnOrFilter, value?)`.
+  `orderBy`, `with(columnName)` — each delegates to an internal `Query` (or,
+  for `with()`, records an eager-load column) and returns `this` for chaining.
+- **Terminal operations:** `toArray()` (materialize to `Record[]`, running any
+  eager-loads), `execute()` (returns an async-generator **cursor** factory for
+  streaming — throws if `.with()` was used, since eager-loading needs the
+  full result set up front), `count()`, `getRecord(idOrColumnOrFilter, value?)`.
+- **Inheritance-aware reads:** before each terminal read, `#refreshQueryTables()`
+  re-resolves `this.getName()` plus `this.getDescendantTables()` (descendants
+  can be registered after this `Table` was constructed) and hands them to
+  `Query.from()`, which builds a `UNION ALL` across all of them when there's
+  more than one.
+- **Relation eager-loading:** `with(columnName)` validates the column has a
+  `foreign_key`, then after the primary read, `#loadRelations()` collects the
+  distinct FK values across the batch and issues one extra query
+  (`WHERE fk_column IN (...)`) against the related table, attaching results
+  via `Record.setRelated()`. Not a SQL join — this composes for free with the
+  related table's own `UNION ALL` inheritance read, if it has one.
 - **Interception bridge:** `intercept(operation, records)` forwards to the
   `RegistriesHandler`, threading the table's `context` and the current
   intercept-disable state.
@@ -122,18 +161,26 @@ gateway. Responsibilities:
   passed to every interceptor.
 
 `SELECT` reads run interception at `BEFORE_SELECT` (once) and `AFTER_SELECT`
-(per row, including inside the streaming cursor generator).
+(per row); eager-loaded relations are attached *after* interception, so
+interceptors never see related records.
 
 ### `Record` (`src/record/Record.ts`)
 A single row instance ("active record" style). Responsibilities:
 
 - Holds the raw record map (`#record`), a modified-columns set
-  (`#columnsModified`), and an `#isNew` flag.
+  (`#columnsModified`), a related-records map (`#related`), and an `#isNew`
+  flag.
 - **Value access:** `set(key, value)` (runs the data type's
   `setValueIntercept`), `get(key)`, `getJSONValue(key)`, `toJSON(columns?)`.
+- **Relations:** `setRelated(columnName, record)` / `getRelated(columnName)`
+  — populated by `Table` after an eager-load, not called directly.
 - **Persistence:** `insert()`, `update()`, `delete()` — each wraps the operation
   in `BEFORE_*` / `AFTER_*` interception, validates fields, builds the SQL via
   its own `Query`, executes it, and rehydrates from the `RETURNING *` row.
+  `update()`/`delete()` target the record's own `_table` column (the concrete
+  physical table it actually lives on) rather than the table it was queried
+  through, so mutating a row fetched via an ancestor's polymorphic read still
+  reaches the right table.
 - **Validation (`#validateRecord`):** iterates columns and calls each data type's
   `validateValue`, collecting `FieldValidationError`s into a `RecordSaveError`.
 - On `createNewRecord()`, `#initialize()` seeds defaults and auto-assigns `id`
@@ -144,8 +191,9 @@ A single row instance ("active record" style). Responsibilities:
 ## 3. Registries (`src/RegistriesHandler.ts`, `src/Registry.ts`)
 
 `Registry<T>` is a generic `Map`-backed store keyed by a `getKey(item)`
-function. `RegistriesHandler` composes three registries and is the single source
-of truth shared across the ORM:
+function, with a `values()` accessor for full enumeration. `RegistriesHandler`
+composes three registries and is the single source of truth shared across the
+ORM:
 
 | Registry                        | Key                      | Holds                        |
 |---------------------------------|--------------------------|------------------------------|
@@ -153,10 +201,12 @@ of truth shared across the ORM:
 | data type registry              | data type name           | `IDataType`                  |
 | operation interceptor *service* | interceptor name         | `RecordInterceptor` (via `DatabaseOperationInterceptorService`) |
 
-`RegistriesHandler.intercept(...)` is a thin delegate to the interceptor
-service. Because the same handler instance is injected from `ORM` → `ORMClient`
-→ `Table`, registering a type/interceptor/table anywhere makes it available
-everywhere.
+`RegistriesHandler.getAllTableDefinitions()` (backed by `Registry.values()`)
+is what lets `TableDefinitionHandler.getDescendantTables()` scan every
+registered table for descendants of a given one. `RegistriesHandler.intercept(...)`
+is a thin delegate to the interceptor service. Because the same handler
+instance is injected from `ORM` → `ORMClient`/`TransactionClient` → `Table`,
+registering a type/interceptor/table anywhere makes it available everywhere.
 
 ---
 
@@ -164,21 +214,39 @@ everywhere.
 
 ### Table definition (`src/table/TableDefinitionHandler.ts`)
 - Normalizes a `TTableDefinition` → `TTableDefinitionStrict` via `setDefaults`
-  (defaults `schema="public"`, `final=false`, empty `columns`/`unique`).
+  (defaults `schema="public"`, `final=false`, empty `columns`/`unique`/`index`,
+  empty `renames`, `allowDestructiveMigrations=false`).
 - Wraps each column in a `Column`.
-- **Inheritance resolution:** `getColumns()` merges own columns with the parent
-  table's columns (looked up recursively from the registry); `getExtendedTables()`
-  and `getBaseName()` walk the inheritance chain.
+- **Inheritance resolution (application-level, not native Postgres
+  `INHERITS`):** `getColumns()` merges own columns with the parent table's
+  columns (looked up recursively from the registry) — every concrete table
+  physically declares its *full* merged column set. `getExtendedTables()`
+  walks *up* the chain (self → ancestors); `getDescendantTables()` walks
+  *down* by scanning every registered definition for ones whose
+  `getExtendedTables()` includes this table.
 - Auto-injects `id` (uuid, unique, not-null) and `_table` (string) columns on
-  **root** tables only (children inherit them).
+  **root** tables only (descendants inherit them into their own merged set).
+- `getUniqueConstraints()` / `getIndexes()` — table-level groups plus any
+  per-column `unique`/`index: true` flags folded in from the merged column
+  set, so a flag declared on an ancestor column still applies to every
+  concrete descendant table.
+- `getRenames()` / `allowsDestructiveMigrations()` — opt-in migration
+  behavior read by `ORMClient#alterTableIfNeeded()`.
 - `validate()` checks table-name format, inheritance validity (parent exists,
   parent not `final`), per-column validity, and duplicate columns; throws
   `TableDefinitionError`.
 
+Polymorphic reads (querying an ancestor and getting descendant rows back) are
+reproduced by `Table`/`SelectQuery` via `UNION ALL` across the table and its
+descendants (see §6) — not by Postgres's own inheritance-aware scan, since
+native `INHERITS` doesn't enforce `UNIQUE`/`PRIMARY KEY`/`FOREIGN KEY`
+constraints across a hierarchy and would tie every table in a hierarchy to
+one schema.
+
 ### Columns (`src/table/Column.ts`, `src/table/ColumnDefinitionHandler.ts`)
 - `ColumnDefinitionHandler` normalizes column defaults and exposes accessors
-  (`isUnique`, `isNotNull`, `getNativeType`, `getDefaultValue`, `getColumnType`)
-  and `validate()`.
+  (`isUnique`, `isIndexed`, `isNotNull`, `getNativeType`, `getDefaultValue`,
+  `getColumnType`) and `validate()`.
 - `Column` extends it, resolving the `IDataType` instance from the registry by
   the column's declared `type`.
 
@@ -196,6 +264,10 @@ everywhere.
 Built-in implementations live in `src/data-types/types/` (Boolean, Char, Date,
 DateTime, Integer, JSON, Number, String, Time, UUID). Custom types are added at
 runtime via `ORM.addDataType()` (see README's `EmailType` example).
+`src/migration/typeMapping.ts` maps each built-in `TColumnDataType` to the
+string Postgres reports back in `information_schema.columns.data_type`, used
+for migration type-change detection — custom types are skipped there, since
+there's no reliable way to map an arbitrary custom native type back.
 
 ### Declarative decorators (`src/TableSchemaDecorators.ts`)
 An alternative, class-based way to declare tables: `@Table()`,
@@ -226,34 +298,48 @@ filter records in-flight (e.g. compute a derived field before insert).
 There are **two** query layers:
 
 ### `src/query/` — high-level facade
-`Query` (`src/query/Query.ts`) is a stateful facade owning a
-`DatabaseConnectionPool`. It exposes a unified fluent API
+`Query` (`src/query/Query.ts`) is a stateful facade owning an `IConnectable`
+(a `DatabaseConnectionPool`, or a `TransactionConnection` inside a
+transaction). It exposes a unified fluent API
 (`select/insert/update/delete/create/alter` + clause methods) that internally
 instantiates and delegates to the appropriate builder object, then:
 
 - `getSQLQuery()` — builds the final SQL string.
-- `execute(sql?)` — reserves a pooled client, runs the SQL, releases the client.
+- `execute(sql?)` — reserves a connection via `IConnectable.connect()`, runs
+  the SQL, releases it.
 - `cursor()` — for `SELECT`, opens a `pg-cursor` for streaming reads.
 
-`CreateQuery` and `AlterQuery` (DDL) live in `src/query/`; the DML/DQL builders
-are re-used from the lower layer.
-
 ### `src/core/query-builder/` — SQL builders
-Pure, connection-agnostic SQL string builders:
+Pure, connection-agnostic SQL string builders, all implementing `IQuery`
+(`{ buildQuery(): string }`):
 
-- **DQL:** `DQL/SelectQuery.ts`
+- **DQL:** `DQL/SelectQuery.ts` — for a single table, an ordinary
+  `SELECT ... FROM ...`; for a table with descendants, builds one branch per
+  table (same columns/`WHERE`) joined with `UNION ALL`, applying
+  `GROUP BY`/`ORDER BY`/`LIMIT`/`OFFSET` once at the outer level. Every
+  branch is assembled unrendered and rendered in a single final `pgFormat()`
+  call, to avoid re-escaping already-rendered SQL text.
 - **DML:** `DML/InsertQuery.ts`, `UpdateQuery.ts`, `DeleteQuery.ts`
+- **DDL:** `DDL/CreateQuery.ts`, `AlterQuery.ts` — `CREATE TABLE`/
+  `ALTER TABLE ... ADD COLUMN` plus inline `UNIQUE`/`ADD UNIQUE` and
+  `PRIMARY KEY`. Non-unique indexes and migration-specific DDL (`RENAME
+  COLUMN`, `DROP COLUMN`, `ALTER COLUMN TYPE`) are **not** built here — they're
+  single-statement, ad-hoc `pgFormat` + `runSQLQuery` calls issued directly
+  from `ORMClient`, since real `CREATE INDEX` can't be inlined into a
+  `CREATE TABLE`/`ALTER TABLE` statement the way `UNIQUE` can.
 - **CLAUSES:** `WhereClause`, `OrderByClause`, `GroupByClause`, `LimitClause`,
   `OffsetClause`, `ColumnsListClause` (all implement `IClause`, exposing
   `prepareStatement()`).
 - **EXPRESSIONS:** `SimpleExpression` (a single `column operator value`) and
   `CompoundExpression` (AND/OR trees). `WhereClause.where(fn)` accepts a
   callback to build nested compound expressions.
-- `PostgresQueryBuilder` — static factory helpers for the builders.
-- `PreparedStatement` / `TPreparedStatement` — an intermediate
+- **`PreparedStatement`** / `TPreparedStatement` — an intermediate
   `{ sql, values }` shape. Builders assemble parameterized fragments (`%I`, `%L`,
   `%s`) that are finally rendered by **`pg-format`**, which handles SQL
-  identifier/literal escaping.
+  identifier/literal escaping. Every ad-hoc SQL string built outside the
+  query-builder classes (in `ORMClient`, `DatabaseClient`,
+  `DatabaseConnectionPool`) follows the same `pgFormat` convention rather than
+  raw string interpolation, to close off SQL-injection risk.
 
 **Operator model:** `src/core/types.ts` defines
 `WHERE_CLAUSE_OPERATORS_CONFIG` — the full operator set (`=`, `!=`, `LIKE`,
@@ -266,19 +352,55 @@ Pure, connection-agnostic SQL string builders:
 
 ## 7. Connection layer (`src/core/connection/`)
 
-- **`DatabaseConnectionPool`** wraps a `pg.Pool`. Provides `testConnection()`,
-  `connect()` (checks out a client as a `DatabaseClient`), `createDatabase()`,
-  `dropDatabase()`, `executeQuery()`, and `end()`. Maps Postgres error code
-  `3D000` to `ORMError.databaseDoesNotExistsError`.
+- **`IConnectable`** — `{ connect(): Promise<DatabaseClient> }`. Implemented by:
+  - **`DatabaseConnectionPool`** — wraps a `pg.Pool`; `connect()` reserves a
+    fresh client each call. Also provides `testConnection()`, `createDatabase()`,
+    `dropDatabase()`, `executeQuery()`, `end()`. Maps Postgres error code
+    `3D000` to `ORMError.databaseDoesNotExistsError`.
+  - **`TransactionConnection`** — wraps one already-open `DatabaseClient`;
+    `connect()` always resolves to that same instance, so every `Query`/
+    `Table` operation inside a transaction shares one physical connection.
 - **`DatabaseClient`** wraps a single checked-out `pg.Client`: `executeQuery()`,
-  `createCursor()` (via `pg-cursor`), schema helpers, and `release()`.
+  `createCursor()` (via `pg-cursor`), schema helpers, `release()`. Constructed
+  with an optional `{ releasable?: boolean }` (default `true`); `release()`
+  only closes the underlying `pg.Client` when `releasable` is true.
+  `withNonReleasingHandle()` returns a second `DatabaseClient` over the same
+  underlying `pg.Client` with `releasable: false` — used inside a transaction
+  so per-operation `.release()` calls no-op until the transaction itself
+  releases the real connection once, in `ORMClient.transaction()`'s `finally`.
 
-The pool is created per `ORMClient`; individual queries reserve a client, run,
-and release it in `finally`/after execution.
+Outside a transaction, individual queries reserve a client via
+`IConnectable.connect()`, run, and release it in `finally`/after execution —
+one reservation per operation, same as before transactions existed.
 
 ---
 
-## 8. Errors (`src/errors/`)
+## 8. Migration subsystem (`src/migration/`)
+
+Not a full migration-file system — no version numbers, no down-migrations.
+Two responsibilities:
+
+- **`MigrationLedger`** — `ensureLedgerTable(client)` lazily creates
+  `public._orm_migrations` (`id`, `table_name`, `change_type`, `detail` jsonb,
+  `applied_at`); `record(client, entry)` inserts one audit row. Called by
+  `ORMClient` after every DDL change it actually applies (`CREATE_TABLE`,
+  `ADD_COLUMN`, `RENAME_COLUMN`, `ALTER_COLUMN_TYPE`, `DROP_COLUMN`,
+  `ADD_UNIQUE`, `ADD_INDEX` — see `TMigrationChangeType`).
+- **`typeMapping.ts`** — `NATIVE_TYPE_TO_INFORMATION_SCHEMA_TYPE`, used to
+  detect when a column's declared type no longer matches what's physically in
+  Postgres, so `#alterTableIfNeeded()` can attempt a best-effort
+  `ALTER COLUMN ... TYPE ... USING ...` (logged, not aborted, on cast
+  failure). Only covers the 10 built-in types.
+
+`renames`/`allowDestructiveMigrations` (on `TTableDefinition`) and the
+type-change/drop detection live in `ORMClient#alterTableIfNeeded()`
+(§2), which runs renames first (so a rename isn't mistaken for a drop-plus-add),
+then the existing add-column diff, then type changes, then opt-in drops, then
+unique constraints, then indexes — recording each to the ledger.
+
+---
+
+## 9. Errors (`src/errors/`)
 
 - `ORMError` — base error with a typed `code`
   (`GENERAL`, `DATABASE_DOES_NOT_EXISTS`, `QUERY`,
@@ -290,31 +412,36 @@ and release it in `finally`/after execution.
 
 ---
 
-## 9. Cross-cutting utilities
+## 10. Cross-cutting utilities
 
 - **`src/utils.ts`** — `runSQLQuery`, `logSQLQuery` (debug logging via
   `pg-minify`), table-name helpers (`getFullFormTableName`,
-  `getShortFormTableName`), `generateUUID` / `validateUUID`, `findDuplicates`,
-  `isEqualArray`.
+  `getSchemaAndTableName`, `getShortFormTableName`), `generateUUID` /
+  `validateUUID`, `findDuplicates`, `isEqualArray`.
 - **`deps.ts`** — the single dependency barrel: `pg`, `pg-cursor`, `pg-format`,
   `pg-minify`, `@std/uuid`, `@std/crypto`, and `@redvars/utils`
   (`CommonUtils`, `Logger`, `LoggerUtils`) plus JSON/`UUID4` types from
   `@utility/types`.
-- **Logging** — a `Logger` is threaded from `ORM` down through `ORMClient`,
-  `Table`, and `Record`; SQL is logged at `DEBUG` level.
+- **Logging** — a `Logger` is threaded from `ORM` down through `ORMClient`/
+  `TransactionClient`, `Table`, and `Record`; SQL is logged at `DEBUG` level,
+  destructive-migration warnings at `WARN`.
 
 ---
 
-## 10. Typical request flows
+## 11. Typical request flows
 
 ### Define a table
 ```
 ORMClient.defineTable(def)
   → TableDefinitionHandler.validate()
   → RegistriesHandler.addTableDefinition()
-  → ensure schema exists
+  → MigrationLedger.ensureLedgerTable() + ensure schema exists
   → Query.create()/alter()  (CreateQuery / AlterQuery → SQL)
-  → DatabaseConnectionPool.connect() → DatabaseClient.executeQuery()
+    (alter path: renames → add columns → type changes → opt-in drops →
+     unique constraints, fanning out to existing descendant tables)
+  → #ensureIndexes()  (CREATE INDEX for any declared, not-yet-existing index)
+  → MigrationLedger.record() per applied change
+  → IConnectable.connect() → DatabaseClient.executeQuery()
 ```
 
 ### Insert a record
@@ -323,48 +450,72 @@ table.createNewRecord()  →  record.set(...)  →  record.insert()
   → intercept BEFORE_INSERT
   → #validateRecord() (per-column IDataType.validateValue)
   → Query.insert().into().columns().values().returning('*')
-  → execute (pooled client)
+  → execute (via IConnectable)
   → rehydrate from RETURNING row
   → intercept AFTER_INSERT
 ```
 
-### Query records
+### Query records (with optional inheritance + relations)
 ```
-table.where(...).orderBy(...).toArray()
+table.where(...).orderBy(...).with('fk_column').toArray()
   → intercept BEFORE_SELECT
-  → SelectQuery.buildQuery() → pg-format → SQL
-  → execute (or execute() → pg-cursor stream)
+  → #refreshQueryTables() (self + current descendants)
+  → SelectQuery.buildQuery() → UNION ALL across tables if >1 → pg-format → SQL
+  → execute
   → each row → convertRawRecordToRecord() → intercept AFTER_SELECT
+  → #loadRelations(): one batched IN-query against the related table,
+    Record.setRelated() per row
+```
+
+### Run a transaction
+```
+client.transaction(async (tx) => { ... })
+  → pool.connect() (one DatabaseClient) → BEGIN
+  → TransactionClient wraps a TransactionConnection over
+    client.withNonReleasingHandle()
+  → tx.table(...)/tx.query(...) — every operation shares the one connection
+  → COMMIT on success / ROLLBACK + rethrow on error
+  → client.release() exactly once, in `finally`
 ```
 
 ---
 
-## 11. Testing & tooling
+## 12. Testing & tooling
 
-- **Tests** (`test/`): unit tests (connection, schema, insert, select, intercept,
-  custom-field-type), a shared `test-suite.ts`, and DB `setUp`/`tearDown`
-  scripts. Run via `deno task test` (which does setUp → `test:unit` → tearDown).
+- **Tests** (`test/`): unit tests (connection — including transactions,
+  schema — create/index/migration, query — insert/select/relation, intercept,
+  custom-field-type), a shared `test.utils.ts` (`Session` singleton), and DB
+  `setUp`/`tearDown` scripts. Run via `deno task test` (setUp → `test:unit` →
+  tearDown).
 - **Coverage:** `deno task coverage` produces LCOV under `dist/coverage`.
 - **Performance/benchmarks:** `test/performance/` (plain + worker-based) and
   `deno task bench`.
 - **Examples** (`examples/`): runnable end-to-end scripts mirroring the README
-  (connection, define+query, interception, custom types, inheritance,
-  references).
+  — connection, define+query, interception, custom types, inheritance,
+  cross-schema references, transactions, indexes, migrations, relations.
 - **CI:** `.github/workflows/` (`test.yml`, `publish.yml`); published to JSR as
   `@redvars/orm`.
 
 ---
 
-## 12. Key design characteristics
+## 13. Key design characteristics
 
 - **Single shared registry** wires schema, data types, and interceptors across
   every layer without a global singleton.
-- **Active-record** style: `Record` instances know how to persist themselves.
+- **Active-record** style: `Record` instances know how to persist themselves,
+  and route mutations to their true owning physical table via `_table`.
 - **Layered query building:** a stateful `Query` facade over pure, testable SQL
   builders that emit parameterized fragments escaped by `pg-format`.
+- **Application-level polymorphism:** table inheritance is reproduced via
+  `UNION ALL` across concrete, independently-schema-placeable tables, each
+  with its own fully-enforced constraints — not native Postgres `INHERITS`.
 - **Extensibility seams:** custom `IDataType`s and `RecordInterceptor`s are
-  first-class runtime registrations.
-- **Postgres-native features** are leveraged directly: table `INHERITS`, schemas,
-  triggers, and cursors.
+  first-class runtime registrations; `IConnectable` lets `Query`/`Table`
+  transparently run against either a pool or a single transaction connection.
+- **Audit over automation** for migrations: additive changes are automatic,
+  anything destructive is opt-in and logged, and every applied change is
+  recorded rather than silently made.
+- **Postgres-native features** are leveraged directly: schemas, triggers,
+  cursors, `pg_indexes`/`information_schema` introspection.
 - **Deno-first:** private fields, `Temporal` for date/time types, and
   `jsr:`/`npm:` imports centralized in `deps.ts`.

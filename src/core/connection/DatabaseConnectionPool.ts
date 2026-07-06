@@ -2,6 +2,7 @@ import { type Logger, LoggerUtils, pg, pgFormat } from "../../../deps.ts";
 import type { TDatabaseConfiguration } from "../types.ts";
 import ORMError from "../../errors/ORMError.ts";
 import { DatabaseClient } from "./DatabaseClient.ts";
+import type IConnectable from "./IConnectable.ts";
 
 /**
  * DatabaseConnectionPool class manage connections to the database.
@@ -23,7 +24,7 @@ import { DatabaseClient } from "./DatabaseClient.ts";
  * ```
  * });
  */
-export default class DatabaseConnectionPool {
+export default class DatabaseConnectionPool implements IConnectable {
   readonly #config: TDatabaseConfiguration;
   readonly #pgPool: pg.Pool;
   readonly #logger: Logger;

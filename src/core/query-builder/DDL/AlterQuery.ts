@@ -1,7 +1,8 @@
-import { getFullFormTableName } from "../utils.ts";
-import type { __TColumnDefinitionNative } from "../types.ts";
+import { getFullFormTableName } from "../../../utils.ts";
+import type { __TColumnDefinitionNative } from "../../../types.ts";
+import type IQuery from "../IQuery.ts";
 
-export class AlterQuery {
+export default class AlterQuery implements IQuery {
   readonly #tableName: string;
 
   #addColumns: __TColumnDefinitionNative[] = [];

@@ -1,14 +1,14 @@
 import SelectQuery from "../core/query-builder/DQL/SelectQuery.ts";
-import { CreateQuery } from "./CreateQuery.ts";
+import CreateQuery from "../core/query-builder/DDL/CreateQuery.ts";
 import InsertQuery from "./../core/query-builder/DML/InsertQuery.ts";
 
-import { AlterQuery } from "./AlterQuery.ts";
+import AlterQuery from "../core/query-builder/DDL/AlterQuery.ts";
 import type { TOrderBy, TOrderByDirection } from "../core/types.ts";
 import type { TWhereClauseOperator } from "../core/types.ts";
 import { runSQLQuery } from "../utils.ts";
 import ORMError from "../errors/ORMError.ts";
 import type { __TColumnDefinitionNative } from "../types.ts";
-import type DatabaseConnectionPool from "../core/connection/DatabaseConnectionPool.ts";
+import type IConnectable from "../core/connection/IConnectable.ts";
 import type WhereClause from "../core/query-builder/CLAUSES/WhereClause.ts";
 import UpdateQuery from "../core/query-builder/DML/UpdateQuery.ts";
 import DeleteQuery from "../core/query-builder/DML/DeleteQuery.ts";
@@ -23,16 +23,16 @@ type QueryType =
   | AlterQuery;
 
 export default class Query {
-  readonly #pool: DatabaseConnectionPool;
+  readonly #connection: IConnectable;
 
   #query?: QueryType;
 
-  constructor(pool: DatabaseConnectionPool) {
-    this.#pool = pool;
+  constructor(connection: IConnectable) {
+    this.#connection = connection;
   }
 
   getInstance(): Query {
-    return new Query(this.#pool);
+    return new Query(this.#connection);
   }
 
   getSelectQuery(): SelectQuery {
@@ -254,7 +254,7 @@ export default class Query {
 
   async execute(sqlString?: string): Promise<any> {
     const sqlQuery = sqlString || this.getSQLQuery();
-    const reserve = await this.#pool.connect();
+    const reserve = await this.#connection.connect();
     let result;
     try {
       result = await runSQLQuery(reserve, sqlQuery);
@@ -271,7 +271,7 @@ export default class Query {
       throw new ORMError("QUERY", "Query type not supported");
     }
     const sqlQuery = this.getSQLQuery();
-    const reserve = await this.#pool.connect();
+    const reserve = await this.#connection.connect();
     const cursor = await reserve.createCursor(sqlQuery);
     return { cursor, reserve };
   }

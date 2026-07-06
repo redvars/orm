@@ -40,6 +40,9 @@ export default class TableDefinitionHandler {
       columns: [],
       schema: "public",
       unique: [],
+      index: [],
+      renames: {},
+      allowDestructiveMigrations: false,
       ...tableDefinition,
     };
 
@@ -208,6 +211,30 @@ export default class TableDefinitionHandler {
 
   getUniqueConstraints(): string[][] {
     return this.#tableDefinition.unique;
+  }
+
+  getRenames(): { [oldName: string]: string } {
+    return this.#tableDefinition.renames;
+  }
+
+  allowsDestructiveMigrations(): boolean {
+    return this.#tableDefinition.allowDestructiveMigrations;
+  }
+
+  /**
+   * Returns every column group that should have a (non-unique) index,
+   * combining explicit table-level groups with per-column `index: true`
+   * flags from the merged (own + inherited) column set - mirrors how
+   * `unique: true` on a column is folded into `CreateQuery#prepareUnique()`.
+   */
+  getIndexes(): string[][] {
+    const indexes = [...this.#tableDefinition.index];
+    for (const column of this.getColumns()) {
+      if (column.getName() !== "id" && column.isIndexed()) {
+        indexes.push([column.getName()]);
+      }
+    }
+    return indexes;
   }
 
   getColumnNames(): string[] {

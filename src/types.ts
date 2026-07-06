@@ -12,6 +12,7 @@ export type TColumnDefinition = {
   not_null?: boolean;
   default?: unknown;
   unique?: boolean;
+  index?: boolean;
   foreign_key?: TForeignKey;
 };
 
@@ -21,6 +22,7 @@ export type TColumnDefinitionStrict = {
   not_null: boolean;
   default: any;
   unique: boolean;
+  index: boolean;
   foreign_key?: TForeignKey;
 };
 
@@ -40,6 +42,16 @@ export type TTableDefinition = {
   final?: boolean;
   columns?: TColumnDefinition[];
   unique?: string[][];
+  index?: string[][];
+  /** Explicit column renames to apply before the add/drop diff, so a
+   * rename isn't mistaken for a drop of the old name plus an add of the
+   * new one. Keyed by the column's current physical name. */
+  renames?: { [oldName: string]: string };
+  /** Opt-in: allow `defineTable()` to DROP a physical column that's no
+   * longer present in this definition. Defaults to false - columns removed
+   * from a definition are otherwise left in place (and logged) rather than
+   * silently dropped. */
+  allowDestructiveMigrations?: boolean;
 };
 
 export type TTableDefinitionStrict = {
@@ -49,6 +61,9 @@ export type TTableDefinitionStrict = {
   final: boolean;
   columns: TColumnDefinitionStrict[];
   unique: string[][];
+  index: string[][];
+  renames: { [oldName: string]: string };
+  allowDestructiveMigrations: boolean;
 };
 
 export type TColumnDataType =

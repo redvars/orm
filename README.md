@@ -13,6 +13,9 @@ transparent persistence for JavaScript objects to Postgres database.
   object, array, etc.).
 - Supports custom data types.
 - Supports table with multi-level inheritance.
+- Supports transactions, indexes, and foreign-key eager-loading.
+- Supports lightweight schema migrations (renames, drops, type changes) with
+  an audit trail.
 - Also supports interception on operations (create, read, update and delete).
 
 ```ts
@@ -115,6 +118,42 @@ await client.defineTable({
 });
 ```
 
+### Index
+
+Per-column and table-level composite (non-unique) indexes:
+
+```ts
+await client.defineTable({
+  name: "product",
+  columns: [
+    {
+      name: "name",
+      type: "string",
+    },
+    {
+      name: "sku",
+      type: "string",
+      index: true,
+    },
+  ],
+});
+
+await client.defineTable({
+  name: "order_item",
+  columns: [
+    {
+      name: "order_id",
+      type: "string",
+    },
+    {
+      name: "product_id",
+      type: "string",
+    },
+  ],
+  index: [["order_id", "product_id"]],
+});
+```
+
 ## Querying
 
 ```ts
@@ -165,6 +204,108 @@ for await (const record of recordCursor) {
   console.log(record.get("name") + " :: " + record.get("roll_no"));
 }
 ```
+
+## Transactions
+
+Run multiple operations against a single connection, committing together or
+rolling back together if anything throws.
+
+```ts
+await client.transaction(async (tx) => {
+  const ledgerTable = tx.table("ledger_entry");
+
+  const first = ledgerTable.createNewRecord();
+  first.set("description", "Opening balance");
+  await first.insert();
+
+  const second = ledgerTable.createNewRecord();
+  second.set("description", "First deposit");
+  await second.insert();
+});
+```
+
+If the callback throws, every operation performed through `tx` is rolled
+back and the original error is re-thrown:
+
+```ts
+try {
+  await client.transaction(async (tx) => {
+    const ledgerTable = tx.table("ledger_entry");
+    const entry = ledgerTable.createNewRecord();
+    entry.set("description", "This should not be persisted");
+    await entry.insert();
+
+    throw new Error("Something went wrong after the insert");
+  });
+} catch (error) {
+  // the insert above was rolled back
+}
+```
+
+**Limitation:** the `tx` passed to the callback only exposes `table()` and
+`query()` (DML). `defineTable()`/`dropTable()` (DDL) are not supported inside
+a transaction in this release.
+
+## Schema migrations
+
+Calling `defineTable()` again for an existing table automatically adds any new
+columns from the definition. Beyond that, `defineTable()` supports two opt-in
+changes:
+
+```ts
+await client.defineTable({
+  name: "note",
+  columns: [
+    {
+      name: "heading",
+      type: "string",
+    },
+  ],
+  // Renames run before the add/drop diff, so a renamed column isn't
+  // mistaken for a drop of the old name plus an add of the new one.
+  renames: { title: "heading" },
+  // Columns no longer present in the definition are left in place (and
+  // logged) unless this is set - dropping a column is destructive, so it
+  // requires explicit opt-in.
+  allowDestructiveMigrations: true,
+});
+```
+
+If a column's declared type changes, `defineTable()` also makes a best-effort
+attempt to `ALTER COLUMN ... TYPE ... USING ...`, logging (rather than
+aborting) if the cast fails. This only works for the built-in data types -
+custom types registered via `ORM.addDataType()` are skipped.
+
+Every change `defineTable()` actually applies (table creation, added columns,
+renames, drops, type changes, added unique constraints and indexes) is
+recorded to a `public._orm_migrations` table (`table_name`, `change_type`,
+`detail`, `applied_at`) for after-the-fact auditability.
+
+**Limitation:** this is not a full migration-file system - there are no
+version numbers, no down-migrations, and no rename/type-change detection
+beyond what's described above.
+
+## Relations / eager loading
+
+Eagerly load the related record for a foreign-key column with `.with()`,
+then read it off each record via `getRelated()`:
+
+```ts
+const employees = await client.table("employee").with("department").toArray();
+for (const record of employees) {
+  console.log(
+    record.get("name") + " :: " +
+      JSON.stringify(record.getRelated("department")?.toJSON()),
+  );
+}
+```
+
+This runs as one extra batched query against the related table (not a SQL
+join), so it doesn't do a query per row.
+
+**Limitations:** many-to-one only (`getRelated()` returns a single record or
+`undefined`, never an array); not supported together with `execute()`'s
+streaming cursor - use `toArray()`/`getRecord()`.
 
 ## Intercepting database operations
 

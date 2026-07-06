@@ -1,5 +1,6 @@
 import ORM from "./src/ORM.ts";
 import ORMClient from "./src/ORMClient.ts";
+import TransactionClient from "./src/TransactionClient.ts";
 import Record from "./src/record/Record.ts";
 import Table from "./src/table/Table.ts";
 import Column from "./src/table/Column.ts";
@@ -20,6 +21,7 @@ export {
   Record,
   RecordInterceptor,
   Table,
+  TransactionClient,
   WhereClause,
 };
 

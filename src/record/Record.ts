@@ -26,6 +26,8 @@ export default class Record {
 
   #columnsModified: { [key: string]: boolean } = {};
 
+  #related: { [columnName: string]: Record | undefined } = {};
+
   constructor(
     queryBuilder: Query,
     table: Table,
@@ -53,6 +55,24 @@ export default class Record {
 
   getID(): string {
     return this.get("id");
+  }
+
+  /**
+   * Sets the eagerly-loaded related record for a foreign-key column. Called
+   * by `Table` after `.with(columnName)` triggers a batched lookup - not
+   * intended to be called directly.
+   */
+  setRelated(columnName: string, record: Record | undefined): void {
+    this.#related[columnName] = record;
+  }
+
+  /**
+   * Returns the related record previously loaded via `.with(columnName)` on
+   * the table this record was fetched from, or `undefined` if `.with()`
+   * wasn't used for this column (or no matching related row was found).
+   */
+  getRelated(columnName: string): Record | undefined {
+    return this.#related[columnName];
   }
 
   set(key: string, value: any): void {

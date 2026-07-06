@@ -4,6 +4,7 @@ import type {
   TRecordInterceptorContext,
   TRecordInterceptorType,
   TTableDefinition,
+  TTableDefinitionStrict,
 } from "../types.ts";
 import Record from "../record/Record.ts";
 import Query from "../query/Query.ts";
@@ -15,7 +16,7 @@ import {
 import TableDefinitionHandler from "./TableDefinitionHandler.ts";
 import type RegistriesHandler from "../RegistriesHandler.ts";
 import { ORMError } from "../../mod.ts";
-import type DatabaseConnectionPool from "../core/connection/DatabaseConnectionPool.ts";
+import type IConnectable from "../core/connection/IConnectable.ts";
 import type WhereClause from "../core/query-builder/CLAUSES/WhereClause.ts";
 import type {
   TOrderBy,
@@ -32,10 +33,12 @@ export default class Table extends TableDefinitionHandler {
 
   #disableIntercepts: boolean | string[] = false;
 
-  readonly #pool: DatabaseConnectionPool;
+  #eagerLoadColumns: string[] = [];
+
+  readonly #connection: IConnectable;
 
   constructor(
-    pool: DatabaseConnectionPool,
+    connection: IConnectable,
     tableDefinition: TTableDefinition,
     registriesHandler: RegistriesHandler,
     logger: Logger,
@@ -44,7 +47,7 @@ export default class Table extends TableDefinitionHandler {
     super(tableDefinition, registriesHandler);
     this.#registriesHandler = registriesHandler;
     this.#logger = logger;
-    this.#pool = pool;
+    this.#connection = connection;
     this.#context = context;
     this.#query = this.#initializeQuery();
   }
@@ -62,14 +65,14 @@ export default class Table extends TableDefinitionHandler {
   }
 
   createNewRecord(): Record {
-    const query = new Query(this.#pool);
+    const query = new Query(this.#connection);
     query.select();
     query.from(this.getName());
     return new Record(query, this, this.#logger);
   }
 
   convertRawRecordToRecord(rawRecord: TRecord): Record {
-    const query = new Query(this.#pool);
+    const query = new Query(this.#connection);
     query.select();
     query.from(this.getName());
     return new Record(query, this, this.#logger, rawRecord);
@@ -155,6 +158,30 @@ export default class Table extends TableDefinitionHandler {
     return this;
   }
 
+  /**
+   * Eagerly loads the related record for a foreign-key column, populating
+   * `Record.getRelated(columnName)` on every record returned by `toArray()`/
+   * `getRecord()`. Implemented as one extra batched query against the
+   * related table (not a SQL join), so it composes for free with that
+   * table's own polymorphic `UNION ALL` inheritance read if it has one.
+   *
+   * Many-to-one only - not supported together with the streaming `execute()`
+   * cursor, since eager-loading needs the full set of foreign key values up
+   * front.
+   */
+  with(columnName: string): Table {
+    const columnSchema = this.getColumnSchema(columnName);
+    if (!columnSchema?.getDefinitionClone().foreign_key) {
+      throw ORMError.generalError(
+        `Column '${columnName}' has no foreign_key defined`,
+      );
+    }
+    if (!this.#eagerLoadColumns.includes(columnName)) {
+      this.#eagerLoadColumns.push(columnName);
+    }
+    return this;
+  }
+
   async count(): Promise<number> {
     this.#refreshQueryTables();
     const sqlQuery = this.#query.getCountSQLQuery();
@@ -175,6 +202,12 @@ export default class Table extends TableDefinitionHandler {
    * ```
    */
   async execute(): Promise<() => AsyncGenerator<Record, void, unknown>> {
+    if (this.#eagerLoadColumns.length) {
+      throw ORMError.generalError(
+        ".with() is not supported with execute()'s streaming cursor; use toArray()/getRecord() instead",
+      );
+    }
+
     await this.intercept("BEFORE_SELECT", []);
 
     this.#refreshQueryTables();
@@ -231,6 +264,11 @@ export default class Table extends TableDefinitionHandler {
       ]);
       records.push(record);
     }
+
+    if (this.#eagerLoadColumns.length && records.length) {
+      await this.#loadRelations(records);
+    }
+
     return records;
   }
 
@@ -301,7 +339,7 @@ export default class Table extends TableDefinitionHandler {
    * Disable all triggers on the table
    */
   async disableAllTriggers() {
-    const client = await this.#pool.connect();
+    const client = await this.#connection.connect();
     await client.executeQuery(
       `ALTER TABLE ${
         Table.getFullFormTableName(
@@ -316,7 +354,7 @@ export default class Table extends TableDefinitionHandler {
    * Enable all triggers on the table
    */
   async enableAllTriggers() {
-    const client = await this.#pool.connect();
+    const client = await this.#connection.connect();
     await client.executeQuery(
       `ALTER TABLE ${
         Table.getFullFormTableName(
@@ -326,91 +364,6 @@ export default class Table extends TableDefinitionHandler {
     );
     client.release();
   }
-
-  /*async bulkInsert(records: Record[]): Promise<Record[]> {
-    records = await this.intercept(
-      "CREATE",
-      OPERATION_WHENS.BEFORE,
-      records
-    );
-
-    for (const record of records) {
-      await this.validateRecord(record.toJSON(), this.getContext());
-    }
-
-    const rawRecords = records.map((record) => record.toJSON());
-
-    for (const record of records) {
-      await this.validateRecord(record.toJSON(), this.getContext());
-    }
-    let savedRawRecords: RawRecord;
-    const reserve = await this.#pool.reserve();
-    try {
-      const command = reserve`INSERT INTO ${reserve(
-        this.getTableSchema().getFullName()
-      )} ${reserve(rawRecords)} RETURNING *`;
-      savedRawRecords = await command.execute();
-    } catch (err) {
-      reserve.release();
-      this.#logger.error(err);
-      /!* throw new RecordValidationError(
-        this.getTableSchema().getDefinition(),
-        "test",
-        [],
-        err.message
-      );*!/
-    } finally {
-      reserve.release();
-    }
-    reserve.release();
-
-    let savedRecords = savedRawRecords.map((savedRawRecord: RawRecord) => {
-      return new Record(savedRawRecord, this);
-    });
-    savedRecords = await this.intercept(
-      "CREATE",
-      OPERATION_WHENS.AFTER,
-      savedRecords
-    );
-    return savedRecords;
-  }
-
-  async bulkUpdate(records: Record[]): Promise<Record> {}
-
-  async deleteRecords(records: Record[]): Promise<any> {
-    records = await this.intercept(
-      "DELETE",
-      OPERATION_WHENS.BEFORE,
-      records
-    );
-
-    const ids = records.map((record) => record.getID());
-
-    const reserve = await this.#pool.reserve();
-    try {
-      const command = reserve`DELETE FROM ${reserve(
-        this.getTableSchema().getFullName()
-      )} where id in ${ids}`;
-      await command.execute();
-    } catch (err) {
-      reserve.release();
-      this.#logger.error(err);
-      throw new RecordSaveError(
-        this.getTableSchema().getDefinition(),
-        "test",
-        [],
-        err.message
-      );
-    } finally {
-      reserve.release();
-    }
-
-    await this.intercept(
-      "DELETE",
-      OPERATION_WHENS.AFTER,
-      records
-    );
-  }*/
 
   /**
    * Intercepts table operation
@@ -437,7 +390,7 @@ export default class Table extends TableDefinitionHandler {
   }
 
   #initializeQuery(): Query {
-    const query = new Query(this.#pool);
+    const query = new Query(this.#connection);
     // Select this table's own column list explicitly (rather than `*`) so
     // that, when this table has descendants, every UNION ALL branch selects
     // the same columns in the same order - each descendant physically
@@ -462,6 +415,50 @@ export default class Table extends TableDefinitionHandler {
 
   #applyQueryTables(query: Query): void {
     query.from(this.getName(), ...this.getDescendantTables());
+  }
+
+  #getRelatedTable(tableName: string): Table {
+    const tableDefinition: TTableDefinitionStrict | undefined = this
+      .#registriesHandler.getTableDefinition(tableName);
+    if (typeof tableDefinition === "undefined") {
+      throw ORMError.generalError(
+        `Related table '${tableName}' is not defined`,
+      );
+    }
+    return new Table(
+      this.#connection,
+      tableDefinition,
+      this.#registriesHandler,
+      this.#logger,
+    );
+  }
+
+  async #loadRelations(records: Record[]): Promise<void> {
+    for (const columnName of this.#eagerLoadColumns) {
+      const foreignKey = this.getColumnSchema(columnName)!.getDefinitionClone()
+        .foreign_key!;
+
+      const fkValues = [
+        ...new Set(
+          records
+            .map((record) => record.get(columnName))
+            .filter((value) => value !== null && typeof value !== "undefined"),
+        ),
+      ];
+      if (!fkValues.length) continue;
+
+      const relatedRecords = await this.#getRelatedTable(foreignKey.table)
+        .where(foreignKey.column, "IN", fkValues)
+        .toArray();
+
+      const relatedByKey = new Map(
+        relatedRecords.map((related) => [related.get(foreignKey.column), related]),
+      );
+
+      for (const record of records) {
+        record.setRelated(columnName, relatedByKey.get(record.get(columnName)));
+      }
+    }
   }
 
   #getQuery() {

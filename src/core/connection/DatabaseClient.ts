@@ -3,8 +3,21 @@ import { type pg, PgCursor, pgFormat } from "../../../deps.ts";
 export class DatabaseClient {
   readonly #pgClient: pg.Client;
 
-  constructor(client: pg.Client) {
+  readonly #releasable: boolean;
+
+  constructor(client: pg.Client, options?: { releasable?: boolean }) {
     this.#pgClient = client;
+    this.#releasable = options?.releasable ?? true;
+  }
+
+  /**
+   * Returns a view over this same underlying connection whose `release()` is
+   * a no-op. Used to run multiple operations against one physical connection
+   * (e.g. inside a transaction) without any of them prematurely releasing it
+   * back to the pool - only the original, releasable handle should do that.
+   */
+  withNonReleasingHandle(): DatabaseClient {
+    return new DatabaseClient(this.#pgClient, { releasable: false });
   }
 
   async doesSchemaExist(schemaName: string): Promise<boolean> {
@@ -36,6 +49,6 @@ export class DatabaseClient {
   }
 
   release() {
-    this.#pgClient.release();
+    if (this.#releasable) this.#pgClient.release();
   }
 }
