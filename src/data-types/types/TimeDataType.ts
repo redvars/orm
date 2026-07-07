@@ -26,11 +26,17 @@ export default class TimeDataType extends IDataType {
       return Temporal.PlainTime.from(value);
     }
     if (value instanceof Date) {
-      return Temporal.PlainTime.from({
-        hour: value.getUTCHours(),
-        minute: value.getUTCMinutes(),
-        second: value.getUTCSeconds(),
-      });
+      // Build the string from local time fields, not UTC ones - consistent
+      // with DateDataType/DateTimeDataType, to avoid shifting by the local
+      // UTC offset. (Deno's Temporal polyfill also rejects the
+      // object-literal from({hour, ...}) form when a field is 0, so a
+      // formatted string is used instead - not just a style preference.)
+      const pad = (value: number) => String(value).padStart(2, "0");
+      return Temporal.PlainTime.from(
+        `${pad(value.getHours())}:${pad(value.getMinutes())}:${
+          pad(value.getSeconds())
+        }`,
+      );
     }
     return value;
   }

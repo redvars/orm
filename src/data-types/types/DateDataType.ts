@@ -26,8 +26,17 @@ export default class DateDataType extends IDataType {
       return Temporal.PlainDate.from(value);
     }
     if (value instanceof Date) {
+      // Build the ISO string from local calendar fields, not toISOString()
+      // (UTC) - the pg driver constructs this Date at local midnight for the
+      // stored DATE value, so reading it back via UTC would shift the day in
+      // any timezone ahead of UTC. (Deno's Temporal polyfill also rejects the
+      // object-literal from({year, month, day}) form when a field is 0, so
+      // a formatted string is used instead - not just a style preference.)
+      const pad = (value: number) => String(value).padStart(2, "0");
       return Temporal.PlainDate.from(
-        value.toISOString().replace("T", " ").replace("Z", ""),
+        `${value.getFullYear()}-${pad(value.getMonth() + 1)}-${
+          pad(value.getDate())
+        }`,
       );
     }
     return value;

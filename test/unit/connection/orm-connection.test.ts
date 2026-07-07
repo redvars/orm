@@ -1,7 +1,6 @@
 import { assert, assertRejects, describe, it } from "../../../test_deps.ts";
-import { ORM, type TDatabaseConfiguration } from "../../../mod.ts";
+import { ORM } from "../../../mod.ts";
 import { defaultConfig } from "../../test.utils.ts";
-import type DatabaseConnectionPool from "../../../src/core/connection/DatabaseConnectionPool.ts";
 
 describe({
   name: "ORM Connection",

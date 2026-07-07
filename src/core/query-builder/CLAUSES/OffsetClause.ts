@@ -14,7 +14,7 @@ export default class OffsetClause implements IClause {
 
   toJSON(): any {
     return {
-      limit: this.#offset,
+      offset: this.#offset,
     };
   }
 

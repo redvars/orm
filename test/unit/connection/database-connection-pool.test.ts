@@ -4,7 +4,7 @@ import type { TDatabaseConfiguration } from "../../../mod.ts";
 import { defaultConfig } from "../../test.utils.ts";
 
 describe({
-  name: "DatabaseConnection",
+  name: "DatabaseConnectionPool",
   fn() {
     it("should establish a connection", async () => {
       const connectionPool = new DatabaseConnectionPool(defaultConfig);
@@ -24,45 +24,36 @@ describe({
       }, Error);
     });
 
-    it("should create new database", async () => {
+    it("#createDatabase / #dropDatabase - self-contained lifecycle", async () => {
+      const connectionPool = await DatabaseConnectionPool.createConnectionPoll(
+        defaultConfig,
+      );
       try {
-        const connectionPool = await DatabaseConnectionPool
-          .createConnectionPoll(defaultConfig);
-        await connectionPool.createDatabase("odm-created-database");
+        await connectionPool.createDatabase("pool-lifecycle-test-db");
+
+        const dbConnection = await DatabaseConnectionPool.createConnectionPoll(
+          {
+            ...defaultConfig,
+            database: "pool-lifecycle-test-db",
+          },
+        );
+        await dbConnection.testConnection();
+        dbConnection.end();
+      } finally {
+        await connectionPool.dropDatabase("pool-lifecycle-test-db");
         connectionPool.end();
-      } catch (error) {
-        assert(false, "Database dropping failed");
       }
     });
 
     it("#multi database connection pools", async () => {
-      const config = {
-        ...defaultConfig,
-        database: "odm-created-database",
-      };
-      const conn1 = await DatabaseConnectionPool.createConnectionPoll(config);
-      const conn2 = await DatabaseConnectionPool.createConnectionPoll(config);
-      const conn3 = await DatabaseConnectionPool.createConnectionPoll(config);
-      const conn4 = await DatabaseConnectionPool.createConnectionPoll(config);
-      const conn5 = await DatabaseConnectionPool.createConnectionPoll(config);
-
-      conn1.end();
-      conn2.end();
-      conn3.end();
-      conn4.end();
-      conn5.end();
-    });
-
-    it("#dropDatabase", async () => {
-      try {
-        const dbConnection = await DatabaseConnectionPool.createConnectionPoll(
-          defaultConfig,
-        );
-        await dbConnection.dropDatabase("odm-created-database");
-        dbConnection.end();
-      } catch (error) {
-        assert(false, "Database dropping failed");
-      }
+      const pools = await Promise.all(
+        Array.from(
+          { length: 5 },
+          () => DatabaseConnectionPool.createConnectionPoll(defaultConfig),
+        ),
+      );
+      assert(pools.length === 5);
+      for (const pool of pools) pool.end();
     });
 
     it("#end pool connections", async () => {
@@ -74,7 +65,7 @@ describe({
       );
       try {
         dbConnection.end();
-      } catch (error) {
+      } catch (_error) {
         assert(false, "ending pool connections failed");
       }
     });

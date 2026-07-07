@@ -200,5 +200,68 @@ describe(
         "Record not found",
       );
     });
+
+    it("#select - limit via Table", async () => {
+      const taskTable = client.table("task");
+      taskTable.initializeQuery();
+      taskTable.limit(5);
+      const records = await taskTable.toArray();
+      assertStrictEquals(records.length, 5, "Should be limited to 5 records");
+    });
+
+    it("#select - column map form ({col: true})", async () => {
+      const taskQuery = client.query();
+      taskQuery.select({ priority: true, description: true });
+      taskQuery.from("task");
+      taskQuery.where("priority", 1);
+      const rows = await taskQuery.execute();
+      assertStrictEquals(rows.length, 10, "Should be 10 records");
+      for (const row of rows) {
+        assertStrictEquals(row.priority, 1, "priority should be 1");
+        assertStrictEquals(
+          typeof row.description,
+          "string",
+          "description should be selected",
+        );
+      }
+    });
+
+    it("#select - IS NULL shorthand via where(column, '=', null)", async () => {
+      const taskQuery = client.query();
+      taskQuery.select("id");
+      taskQuery.from("task");
+      taskQuery.where("description", "=", null);
+      const rows = await taskQuery.execute();
+      assertStrictEquals(
+        rows.length,
+        0,
+        "No task should have a null description",
+      );
+    });
+
+    it("#select - where(true)/where(false) literal shorthand", async () => {
+      const allRows = await client.query().select("id").from("task").where(true)
+        .execute();
+      assertStrictEquals(allRows.length, 61, "where(true) should match every row");
+
+      const noRows = await client.query().select("id").from("task").where(false)
+        .execute();
+      assertStrictEquals(noRows.length, 0, "where(false) should match no rows");
+    });
+
+    it("#select - nested compound where(fn) via Table", async () => {
+      const taskTable = client.table("task");
+      taskTable.initializeQuery();
+      taskTable.where((subClause) => {
+        subClause.where("priority", 1).orWhere("priority", 3);
+      });
+      taskTable.andWhere("active", true);
+      const count = await taskTable.count();
+      assertStrictEquals(
+        count,
+        30,
+        "Expected priority 1 or 3, all active (10 + 20)",
+      );
+    });
   },
 );

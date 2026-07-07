@@ -113,8 +113,6 @@ Represents a live, connected session. Owns a `DatabaseConnectionPool` and a
      every already-existing descendant table too, since Postgres no longer
      propagates schema changes through a real inheritance relationship.
      Every applied change is recorded to `MigrationLedger`.
-- `defineTable()` also accepts a **decorated class** (see
-  `TableSchemaDecorators`), reading its `__tableDefinition`.
 - `dropTable()`, `deregisterTable()`.
 - **Factories:** `table(name, context?)` returns a `Table`; `query()` returns a
   bare `Query`.
@@ -268,11 +266,6 @@ runtime via `ORM.addDataType()` (see README's `EmailType` example).
 string Postgres reports back in `information_schema.columns.data_type`, used
 for migration type-change detection — custom types are skipped there, since
 there's no reliable way to map an arbitrary custom native type back.
-
-### Declarative decorators (`src/TableSchemaDecorators.ts`)
-An alternative, class-based way to declare tables: `@Table()`,
-`@DataTypeString()`, `@DataTypeInteger()` build a `__tableDefinition` on the
-class that `ORMClient.defineTable()` can consume.
 
 ---
 

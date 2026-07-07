@@ -146,11 +146,7 @@ export default class ORMClient {
     this.#registriesHandler.deleteTableDefinition(tableName);
   }
 
-  async defineTable(tableDefinitionRaw: TTableDefinition | Function) {
-    if (typeof tableDefinitionRaw === "function") {
-      // @ts-ignore
-      tableDefinitionRaw = tableDefinitionRaw.__tableDefinition;
-    }
+  async defineTable(tableDefinitionRaw: TTableDefinition) {
     const tableDefinitionHandler = new TableDefinitionHandler(
       tableDefinitionRaw,
       this.#registriesHandler,

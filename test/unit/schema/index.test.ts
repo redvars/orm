@@ -21,6 +21,16 @@ async function getIndexNames(
   return rows.map((row: { indexname: string }) => row.indexname);
 }
 
+async function getLedgerRows(
+  client: ORMClient,
+  tableName: string,
+  changeType: string,
+): Promise<any[]> {
+  return await client.query().execute(
+    `SELECT * FROM public._orm_migrations WHERE table_name = '${tableName}' AND change_type = '${changeType}';`,
+  );
+}
+
 describe({
   name: "Index",
   fn: () => {
@@ -57,6 +67,9 @@ describe({
         indexNames.includes("idx_product_sku"),
         "Expected idx_product_sku to exist",
       );
+
+      const ledgerRows = await getLedgerRows(client, "product", "ADD_INDEX");
+      assertEquals(ledgerRows.length, 1);
     });
 
     it("#defineTable - table-level composite index", async () => {

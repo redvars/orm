@@ -9,7 +9,7 @@
     "test:setUp": "deno run --allow-read --allow-env --allow-net --unstable-temporal ./test/setUp.ts",
     "test:tearDown": "deno run --allow-read --allow-env --allow-net --unstable-temporal ./test/tareDown.ts",
     "test": "deno task test:setUp && deno task test:unit && deno task test:tearDown",
-    "bench": "deno test --allow-read --allow-env ./test/bench.ts"
+    "bench": "deno run --allow-read --allow-env --allow-net --unstable-temporal ./test/performance/performance-plain.ts"
   },
   "exclude": ["dist", ".run", ".github/", "version.json"],
   "publish": {

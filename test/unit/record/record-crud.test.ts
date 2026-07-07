@@ -12,7 +12,7 @@ import { ORM, type ORMClient, type Record } from "../../../mod.ts";
 import { Session } from "../../test.utils.ts";
 
 describe({
-  name: "INSERT Query",
+  name: "Record CRUD",
   fn: () => {
     let client: ORMClient;
     const cleanTableList: string[] = [];
@@ -76,7 +76,6 @@ describe({
           },
           {
             name: "salary",
-            /*  maximum: 10000,*/
             type: "integer",
             not_null: true,
           },
@@ -105,11 +104,6 @@ describe({
       });
 
       cleanTableList.push("employee");
-    });
-
-    it("#Table::getName", function () {
-      const employeeTable = client.table("employee");
-      assertEquals(employeeTable.getName(), "employee", "Invalid table name");
     });
 
     /**
@@ -220,6 +214,33 @@ describe({
         newEmp.getID(),
       );
       assert(!employee);
+    });
+
+    it("#insert - a plain root table record", async () => {
+      await client.defineTable({
+        name: "record_crud_widget",
+        columns: [{ name: "name", type: "string" }],
+      });
+      cleanTableList.push("record_crud_widget");
+
+      const record = client.table("record_crud_widget").createNewRecord();
+      await record.insert();
+      assert(!record.isNew());
+    });
+
+    it("#insert - a record on a table that inherits another", async () => {
+      await client.defineTable({
+        name: "record_crud_special_widget",
+        inherits: "record_crud_widget",
+        final: true,
+        columns: [{ name: "extra", type: "string" }],
+      });
+      cleanTableList.push("record_crud_special_widget");
+
+      const record = client.table("record_crud_special_widget")
+        .createNewRecord();
+      await record.insert();
+      assert(!record.isNew());
     });
   },
 });

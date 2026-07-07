@@ -3,7 +3,7 @@ import type { TColumnDataType, TColumnDefinitionStrict } from "../../types.ts";
 
 export default class CharDataType extends IDataType {
   constructor() {
-    super("string");
+    super("char");
   }
 
   getNativeType(_definition: TColumnDefinitionStrict): TColumnDataType {

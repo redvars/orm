@@ -161,5 +161,82 @@ describe({
       const ledgerRows = await getLedgerRows(client, "counter", "ALTER_COLUMN_TYPE");
       assertEquals(ledgerRows.length, 1);
     });
+
+    it("#defineTable - rename is a no-op when the target name already exists or the source is missing", async () => {
+      await client.defineTable({
+        name: "profile",
+        columns: [
+          { name: "nickname", type: "string" },
+          { name: "handle", type: "string" },
+        ],
+      });
+      cleanTableList.push("profile");
+
+      client.deregisterTable("profile");
+      await client.defineTable({
+        name: "profile",
+        columns: [
+          { name: "nickname", type: "string" },
+          { name: "handle", type: "string" },
+        ],
+        // "handle" already exists, so this rename must be skipped rather
+        // than erroring or clobbering the existing column; "missing" was
+        // never a column, so that rename is skipped too.
+        renames: { handle: "nickname", missing: "also_missing" },
+      });
+
+      assert(
+        await columnExists(client, "profile", "nickname"),
+        "Original target column should still exist",
+      );
+      assert(
+        await columnExists(client, "profile", "handle"),
+        "Source column should be untouched since the rename was skipped",
+      );
+
+      const rows = await getLedgerRows(client, "profile", "RENAME_COLUMN");
+      assertEquals(rows.length, 0, "No-op renames should not be recorded");
+    });
+
+    it("#defineTable - a failed best-effort type change is logged, not thrown", async () => {
+      await client.defineTable({
+        name: "ticket",
+        columns: [{ name: "code", type: "string" }],
+      });
+      cleanTableList.push("ticket");
+
+      const ticketTable = client.table("ticket");
+      const record = ticketTable.createNewRecord();
+      record.set("code", "not-a-number");
+      await record.insert();
+
+      client.deregisterTable("ticket");
+      // "code" holds a non-numeric string - casting it to INTEGER fails at
+      // the database level. defineTable() must not throw for this.
+      await client.defineTable({
+        name: "ticket",
+        columns: [{ name: "code", type: "integer" }],
+      });
+
+      const rows = await client.query().execute(
+        `SELECT data_type FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'ticket' AND column_name = 'code';`,
+      );
+      assertEquals(
+        rows[0].data_type,
+        "character varying",
+        "Column type should be unchanged since the cast failed",
+      );
+
+      const ledgerRows = await getLedgerRows(
+        client,
+        "ticket",
+        "ALTER_COLUMN_TYPE",
+      );
+      assertEquals(
+        ledgerRows.length,
+        0,
+        "A failed cast should not be recorded as a successful change",
+      );
+    });
   },
 });

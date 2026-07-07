@@ -15,7 +15,6 @@ describe({
     let odm: ORM;
     let client: ORMClient;
     const cleanTableList: string[] = [];
-    const logger = Session.getLogger();
 
     const EMAIL_TYPE = "email";
     const EMAIL_FIELD = "email";
@@ -122,27 +121,8 @@ describe({
       assert(error, "Able to create, invalid value");
     });
 
-    it("#registerFieldType - trying create invalid field", async function () {
-      let error = false;
-      try {
-        await client.defineTable({
-          name: "field_definition_invalid_test",
-          columns: [
-            {
-              name: "name",
-              type: "string",
-            },
-            {
-              name: "custom_field",
-              type: "invalid_field_type",
-            },
-          ],
-        });
-      } catch (_err) {
-        // No need to do anything
-        error = true;
-      }
-      assert(error, "Able to create, not defined field type element");
-    });
+    // Note: "unrecognized column type causes defineTable() to reject" is
+    // covered by schema/table-definition.test.ts's
+    // "#ORM::defineTable - unknown field type" test - not duplicated here.
   },
 });

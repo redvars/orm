@@ -533,12 +533,14 @@ client.closeConnection();
 | Data type    | Record.get             | Record.getJSONValue |
 |--------------|------------------------|---------------------|
 | **boolean**  | boolean                | boolean             |
+| **char**     | string                 | string              |
 | **date**     | Temporal.PlainDate     | string              |
 | **datetime** | Temporal.PlainDateTime | string              |
 | **integer**  | number                 | number              |
 | **json**     | {}                     | {}                  |
 | **number**   | number                 | number              |
 | **string**   | string                 | string              |
+| **time**     | Temporal.PlainTime     | string              |
 | **uuid**     | string                 | string              |
 
 Check the examples >> [here](./examples) <<

@@ -52,7 +52,7 @@ export default class GroupByClause implements IClause {
     }
     return {
       sql: ` GROUP BY %I`,
-      values: this.#groupBy,
+      values: [this.#groupBy],
     };
   }
 }
