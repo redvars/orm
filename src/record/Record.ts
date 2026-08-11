@@ -7,6 +7,7 @@ import type Query from "../query/Query.ts";
 import { FieldValidationError } from "../errors/FieldValidationError.ts";
 import { generateUUID, logSQLQuery } from "../utils.ts";
 import ORMError from "../errors/ORMError.ts";
+import { fromDatabaseValue } from "../data-types/nativeTypeUtils.ts";
 
 export default class Record {
   #isNew = false;
@@ -36,7 +37,7 @@ export default class Record {
       this.#initialize();
     } else {
       this.#record = {};
-      for (const key of Object.keys(record)) this.set(key, record[key]);
+      for (const key of Object.keys(record)) this.#hydrate(key, record[key]);
     }
   }
 
@@ -98,6 +99,32 @@ export default class Record {
       return jsonValue;
     }
     return null;
+  }
+
+  getDisplayValue(key: string): string {
+    const record = this.#getRawRecord();
+    const dataType = this.#table.getColumnSchema(key)?.getColumnType();
+    if (dataType && typeof record[key] !== "undefined") {
+      return dataType.getDisplayValue(record[key]);
+    }
+    return "";
+  }
+
+  /**
+   * Populates a column from a raw value as returned by the pg driver (e.g. a
+   * native `Date` for a DATE/TIMESTAMP column), as opposed to `set()` which
+   * accepts user-supplied values. Converted generically by the column's
+   * native SQL type rather than by its `IDataType`.
+   */
+  #hydrate(key: string, value: any): void {
+    const record = this.#getRawRecord();
+    const field = this.#table.getColumnSchema(key);
+    if (field) {
+      record[key] = typeof value === "undefined"
+        ? null
+        : fromDatabaseValue(field.getNativeType(), value);
+      this.#columnsModified[key] = true;
+    }
   }
 
   async insert(): Promise<Record> {

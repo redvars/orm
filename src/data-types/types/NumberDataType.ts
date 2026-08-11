@@ -1,5 +1,6 @@
 import IDataType from "../IDataType.ts";
 import type { TColumnDataType, TColumnDefinitionStrict } from "../../types.ts";
+import { fromDatabaseValue } from "../nativeTypeUtils.ts";
 
 export default class NumberDataType extends IDataType {
   constructor() {
@@ -17,9 +18,9 @@ export default class NumberDataType extends IDataType {
   }
 
   setValueIntercept(value: number | string | null): number | null {
-    //@ts-ignore
-    if (typeof value === "string") return value * 1;
-    return value;
+    // Same string-to-number coercion pg needs for a NUMERIC/DECIMAL value
+    // coming off the wire, so it's reused here for user-supplied values too.
+    return fromDatabaseValue("DECIMAL", value) as number | null;
   }
 
   async validateValue(value: any) {

@@ -15,6 +15,9 @@ class FakeDataType extends IDataType {
   toJSONValue(value: unknown) {
     return value as any;
   }
+  fromDatabaseValue(value: unknown) {
+    return value;
+  }
   setValueIntercept(value: unknown) {
     return value;
   }

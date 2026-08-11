@@ -25,6 +25,10 @@ class EmailType extends IDataType {
     // Throw an error if something in definition is not meeting your expectation.
   }
 
+  fromDatabaseValue(value: string | null): string | null {
+    return value;
+  }
+
   setValueIntercept(newValue: any): any {
     return newValue;
   }

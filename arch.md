@@ -251,13 +251,15 @@ one schema.
 ### Data types (`src/data-types/`)
 `IDataType` is the abstract contract every type implements:
 
-| Method                | Purpose                                             |
-|-----------------------|-----------------------------------------------------|
-| `getNativeType()`     | maps to a Postgres `TColumnDataType` (e.g. `VARCHAR`)|
-| `validateDefinition()`| validates the column definition at define-time      |
-| `setValueIntercept()` | coerces a value on `Record.set` (e.g. `Date` → `Temporal.PlainDate`) |
-| `toJSONValue()`       | serializes for `toJSON` / JSON output               |
-| `validateValue()`     | async value validation before persistence           |
+| Method                  | Purpose                                             |
+|-------------------------|-----------------------------------------------------|
+| `getNativeType()`       | maps to a Postgres `TColumnDataType` (e.g. `VARCHAR`)|
+| `validateDefinition()`  | validates the column definition at define-time      |
+| `fromDatabaseValue()`   | parses a raw pg-driver value (e.g. `Date`) into the canonical JS representation (e.g. `Temporal.PlainDate`) when hydrating a `Record` from a query result row |
+| `setValueIntercept()`   | coerces a user-supplied value on `Record.set` into the same canonical representation - more lenient than `fromDatabaseValue`, since it must also accept whatever shapes callers pass in |
+| `toJSONValue()`         | serializes the canonical representation for `toJSON` / JSON output (e.g. a UTC ISO instant for `datetime`) |
+| `getDisplayValue()`     | optional human-friendly formatting; defaults to the JSON representation |
+| `validateValue()`       | async value validation before persistence           |
 
 Built-in implementations live in `src/data-types/types/` (Boolean, Char, Date,
 DateTime, Integer, JSON, Number, String, Time, UUID). Custom types are added at

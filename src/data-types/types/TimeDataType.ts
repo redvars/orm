@@ -19,8 +19,24 @@ export default class TimeDataType extends IDataType {
     return value;
   }
 
+  /**
+   * The pg driver returns TIME columns as a plain "HH:mm:ss" string, not a
+   * native `Date` - the `Date` branch below only exists for callers that
+   * pass one directly (e.g. through `setValueIntercept`, or a custom native
+   * type mapping).
+   */
+  fromDatabaseValue(value: string | Date | null): Temporal.PlainTime | null {
+    return this.#normalize(value);
+  }
+
   setValueIntercept(
-    value: Temporal.PlainTime | Date | null,
+    value: Temporal.PlainTime | Date | string | null,
+  ): Temporal.PlainTime | null {
+    return this.#normalize(value);
+  }
+
+  #normalize(
+    value: Temporal.PlainTime | Date | string | null,
   ): Temporal.PlainTime | null {
     if (typeof value === "string") {
       return Temporal.PlainTime.from(value);

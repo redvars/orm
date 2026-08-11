@@ -91,7 +91,9 @@ describe({
           );
 
           assertEquals(found!.getJSONValue("day"), "2024-01-15");
-          assertEquals(found!.getJSONValue("moment"), "2024-01-15T10:30:00");
+          // DateTimeDataType's JSON form treats the (timezone-less) wall
+          // clock value as UTC, producing a full ISO instant.
+          assertEquals(found!.getJSONValue("moment"), "2024-01-15T10:30:00Z");
           assertEquals(found!.getJSONValue("clock"), "10:30:00");
         });
 
@@ -251,6 +253,74 @@ describe({
           const jsonType = new JSONDataType();
           const value = { nested: true };
           assertEquals(jsonType.setValueIntercept(value), value);
+        });
+      },
+    });
+
+    describe({
+      name: "fromDatabaseValue - parses what pg actually returns",
+      fn: () => {
+        it("NumberDataType - parses the string pg returns for NUMERIC/DECIMAL", () => {
+          const type = new NumberDataType();
+          assertEquals(type.fromDatabaseValue("3.50"), 3.5);
+          assertEquals(type.fromDatabaseValue(null), null);
+        });
+
+        it("IntegerDataType / BooleanDataType / StringDataType / CharDataType / UUIDDataType / JSONDataType - pass the native pg value through unchanged", () => {
+          assertEquals(new IntegerDataType().fromDatabaseValue(42), 42);
+          assertEquals(new BooleanDataType().fromDatabaseValue(true), true);
+          assertEquals(new StringDataType().fromDatabaseValue("hello"), "hello");
+          assertEquals(new CharDataType().fromDatabaseValue("A"), "A");
+          assertEquals(
+            new UUIDDataType().fromDatabaseValue(
+              "550e8400-e29b-41d4-a716-446655440000",
+            ),
+            "550e8400-e29b-41d4-a716-446655440000",
+          );
+          const jsonValue = { nested: true };
+          assertEquals(
+            new JSONDataType().fromDatabaseValue(jsonValue),
+            jsonValue,
+          );
+        });
+
+        it("DateDataType / DateTimeDataType / TimeDataType - parse the native Date pg returns", () => {
+          // Constructed from local field getters, not UTC ones - build via
+          // the local Date constructor to keep this independent of the
+          // machine's timezone.
+          const date = new Date(2024, 0, 15);
+          assertEquals(
+            new DateDataType().fromDatabaseValue(date)?.toString(),
+            "2024-01-15",
+          );
+
+          const dateTime = new Date(2024, 0, 15, 10, 30, 0);
+          assertEquals(
+            new DateTimeDataType().fromDatabaseValue(dateTime)?.toString(),
+            "2024-01-15T10:30:00",
+          );
+
+          // pg returns TIME columns as a plain string, not a Date - confirm
+          // that shape is handled too.
+          assertEquals(
+            new TimeDataType().fromDatabaseValue("10:30:00")?.toString(),
+            "10:30:00",
+          );
+        });
+      },
+    });
+
+    describe({
+      name: "getDisplayValue - optional display formatting",
+      fn: () => {
+        it("defaults to the JSON representation, and empty string for null", () => {
+          const stringType = new StringDataType();
+          assertEquals(stringType.getDisplayValue("hello"), "hello");
+          assertEquals(stringType.getDisplayValue(null), "");
+
+          const dateType = new DateDataType();
+          const date = Temporal.PlainDate.from("2024-01-15");
+          assertEquals(dateType.getDisplayValue(date), "2024-01-15");
         });
       },
     });

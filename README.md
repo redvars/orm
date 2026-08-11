@@ -417,6 +417,13 @@ class EmailType extends IDataType {
     // Throw an error if something in definition is not meeting your expectation.
   }
 
+  // Parses a value as returned by the pg driver when hydrating a Record
+  // from a query result row.
+  fromDatabaseValue(value: string | null): string | null {
+    return value;
+  }
+
+  // Coerces a user-supplied value passed to Record#set().
   setValueIntercept(newValue: any): any {
     return newValue;
   }
@@ -478,6 +485,8 @@ try {
 
 client.closeConnection();
 ```
+
+`IDataType` also has an optional `getDisplayValue(value)` method for human-friendly formatting (e.g. for UI display); it defaults to the JSON representation, but a custom type can override it.
 
 ## Inheritance
 
@@ -542,6 +551,11 @@ client.closeConnection();
 | **string**   | string                 | string              |
 | **time**     | Temporal.PlainTime     | string              |
 | **uuid**     | string                 | string              |
+
+`date`'s JSON string is a plain ISO date (`2024-01-15`) and `time`'s is a plain
+ISO time (`10:30:00`). `datetime` has no timezone in Postgres, so its JSON
+string treats the stored wall-clock value as UTC and is a full ISO instant
+(`2024-01-15T10:30:00Z`).
 
 Check the examples >> [here](./examples) <<
 

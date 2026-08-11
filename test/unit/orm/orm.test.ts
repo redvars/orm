@@ -59,6 +59,9 @@ describe({
         toJSONValue(value: string | null) {
           return value;
         }
+        fromDatabaseValue(value: string | null) {
+          return value;
+        }
         setValueIntercept(value: string | null) {
           return value === null ? null : value.toUpperCase();
         }

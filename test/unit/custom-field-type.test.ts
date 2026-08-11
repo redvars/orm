@@ -49,6 +49,10 @@ describe({
 
         validateDefinition(_fieldDefinition: TColumnDefinition) {}
 
+        fromDatabaseValue(value: string | null): string | null {
+          return value;
+        }
+
         setValueIntercept(newValue: any): any {
           return newValue;
         }
