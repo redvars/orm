@@ -10,16 +10,16 @@ export default class IntegerDataType extends IDataType {
     return "INTEGER";
   }
 
-  toJSONValue(value: number | null): number | null {
-    return value;
-  }
-
   validateDefinition(_definition: TColumnDefinitionStrict) {}
 
   setValueIntercept(value: number | string | null): number | null {
     if (value === null) return null;
     if (typeof value === "number") return value;
     if (typeof value === "string") return parseInt(value, 10);
+    return value;
+  }
+
+  getObjectIntercept(value: number | null): number | null {
     return value;
   }
 

@@ -14,11 +14,11 @@ export default class UUIDDataType extends IDataType {
 
   validateDefinition(_definition: TColumnDefinitionStrict) {}
 
-  toJSONValue(value: UUID4 | null): string | null {
+  setValueIntercept(value: UUID4 | null): UUID4 | null {
     return value;
   }
 
-  setValueIntercept(value: UUID4 | null): UUID4 | null {
+  getObjectIntercept(value: UUID4 | null): UUID4 | null {
     return value;
   }
 

@@ -1,6 +1,6 @@
 # RESVARS ORM
 
-![GitHub release (with filter)](https://img.shields.io/github/v/release/redvars/orm?label=Release)
+[![JSR Version](https://img.shields.io/jsr/v/redvars/orm)](https://jsr.io/redvars/orm)
 [![Test](https://github.com/redvars/orm/workflows/Test/badge.svg)](https://github.com/redvars/orm/actions?workflow=Test)
 [![Coverage](https://codecov.io/gh/redvars/orm/branch/main/graph/badge.svg)](https://codecov.io/gh/redvars/orm)
 [![License](https://img.shields.io/github/license/redvars/orm.svg)](/LICENSE)
@@ -409,23 +409,21 @@ class EmailType extends IDataType {
     return "VARCHAR";
   }
 
-  toJSONValue(value: string | null): string | null {
-    return value;
-  }
-
   validateDefinition(_columnDefinition: TColumnDefinition) {
     // Throw an error if something in definition is not meeting your expectation.
   }
 
-  // Parses a value as returned by the pg driver when hydrating a Record
-  // from a query result row.
-  fromDatabaseValue(value: string | null): string | null {
-    return value;
-  }
-
-  // Coerces a user-supplied value passed to Record#set().
+  // Coerces a value passed to Record#set() (or a raw pg-driver value when
+  // hydrating a Record from a query result row) into this type's JSON-safe
+  // representation - what Record#get() returns.
   setValueIntercept(newValue: any): any {
     return newValue;
+  }
+
+  // Converts the stored JSON-safe value back into this type's canonical
+  // representation - what Record#getObject() returns.
+  getObjectIntercept(value: string | null): string | null {
+    return value;
   }
 
   async validateValue(value: unknown): Promise<void> {
@@ -486,7 +484,7 @@ try {
 client.closeConnection();
 ```
 
-`IDataType` also has an optional `getDisplayValue(value)` method for human-friendly formatting (e.g. for UI display); it defaults to the JSON representation, but a custom type can override it.
+`IDataType` also has an optional `getDisplayValue(value)` method for human-friendly formatting (e.g. for UI display); it defaults to stringifying the stored JSON-safe value, but a custom type can override it.
 
 ## Inheritance
 
@@ -539,18 +537,18 @@ client.closeConnection();
 
 ## Data types
 
-| Data type    | Record.get             | Record.getJSONValue |
-|--------------|------------------------|---------------------|
-| **boolean**  | boolean                | boolean             |
-| **char**     | string                 | string              |
-| **date**     | Temporal.PlainDate     | string              |
-| **datetime** | Temporal.PlainDateTime | string              |
-| **integer**  | number                 | number              |
-| **json**     | {}                     | {}                  |
-| **number**   | number                 | number              |
-| **string**   | string                 | string              |
-| **time**     | Temporal.PlainTime     | string              |
-| **uuid**     | string                 | string              |
+| Data type    | Record.get (JSON) | Record.getObject       |
+|--------------|-------------------|------------------------|
+| **boolean**  | boolean           | boolean                |
+| **char**     | string            | string                 |
+| **date**     | string            | Temporal.PlainDate     |
+| **datetime** | string            | Temporal.PlainDateTime |
+| **integer**  | number            | number                 |
+| **json**     | {}                | {}                     |
+| **number**   | number            | number                 |
+| **string**   | string            | string                 |
+| **time**     | string            | Temporal.PlainTime     |
+| **uuid**     | string            | string                 |
 
 `date`'s JSON string is a plain ISO date (`2024-01-15`) and `time`'s is a plain
 ISO time (`10:30:00`). `datetime` has no timezone in Postgres, so its JSON

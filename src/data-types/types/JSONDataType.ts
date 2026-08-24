@@ -13,11 +13,11 @@ export default class JSONDataType extends IDataType {
 
   validateDefinition(_definition: TColumnDefinitionStrict) {}
 
-  toJSONValue(value: JSONValue): JSONValue {
+  setValueIntercept(value: JSONValue): JSONValue {
     return value;
   }
 
-  setValueIntercept(value: JSONValue): JSONValue {
+  getObjectIntercept(value: JSONValue): JSONValue {
     return value;
   }
 

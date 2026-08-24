@@ -1,6 +1,5 @@
 import IDataType from "../IDataType.ts";
 import type { TColumnDataType, TColumnDefinitionStrict } from "../../types.ts";
-import { fromDatabaseValue } from "../nativeTypeUtils.ts";
 
 export default class NumberDataType extends IDataType {
   constructor() {
@@ -13,14 +12,16 @@ export default class NumberDataType extends IDataType {
 
   validateDefinition(_definition: TColumnDefinitionStrict) {}
 
-  toJSONValue(value: number | null): number | null {
-    return value;
+  setValueIntercept(value: number | string | null): number | null {
+    // pg returns NUMERIC/DECIMAL as a string to avoid floating-point
+    // precision loss - same coercion is reused here for user-supplied
+    // values too.
+    if (value === null || typeof value === "undefined") return null;
+    return typeof value === "string" ? Number(value) : value;
   }
 
-  setValueIntercept(value: number | string | null): number | null {
-    // Same string-to-number coercion pg needs for a NUMERIC/DECIMAL value
-    // coming off the wire, so it's reused here for user-supplied values too.
-    return fromDatabaseValue("DECIMAL", value) as number | null;
+  getObjectIntercept(value: number | null): number | null {
+    return value;
   }
 
   async validateValue(value: any) {

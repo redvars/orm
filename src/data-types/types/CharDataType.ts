@@ -12,13 +12,13 @@ export default class CharDataType extends IDataType {
 
   validateDefinition(_definition: TColumnDefinitionStrict) {}
 
-  toJSONValue(value: string | null): string | null {
-    return value;
-  }
-
   setValueIntercept(value: string | number | null): string | null {
     if (value === null) return null;
     return String(value);
+  }
+
+  getObjectIntercept(value: string | null): string | null {
+    return value;
   }
 
   async validateValue() {}

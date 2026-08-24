@@ -78,23 +78,26 @@ describe({
 
           assertEquals(found!.get("flag"), true);
           assertEquals(found!.get("code"), "A");
-          assertEquals(found!.get("day").toString(), "2024-01-15");
-          assertEquals(found!.get("moment").toString(), "2024-01-15T10:30:00");
+          assertEquals(found!.get("day"), "2024-01-15");
+          // DateTimeDataType's JSON form treats the (timezone-less) wall
+          // clock value as UTC, producing a full ISO instant.
+          assertEquals(found!.get("moment"), "2024-01-15T10:30:00Z");
           assertEquals(found!.get("count"), 42);
           assertEquals(found!.get("payload"), { nested: true });
           assertEquals(found!.get("amount"), 3.5);
           assertEquals(found!.get("label"), "hello");
-          assertEquals(found!.get("clock").toString(), "10:30:00");
+          assertEquals(found!.get("clock"), "10:30:00");
           assertEquals(
             found!.get("ref"),
             "550e8400-e29b-41d4-a716-446655440000",
           );
 
-          assertEquals(found!.getJSONValue("day"), "2024-01-15");
-          // DateTimeDataType's JSON form treats the (timezone-less) wall
-          // clock value as UTC, producing a full ISO instant.
-          assertEquals(found!.getJSONValue("moment"), "2024-01-15T10:30:00Z");
-          assertEquals(found!.getJSONValue("clock"), "10:30:00");
+          assertEquals(found!.getObject("day").toString(), "2024-01-15");
+          assertEquals(
+            found!.getObject("moment").toString(),
+            "2024-01-15T10:30:00",
+          );
+          assertEquals(found!.getObject("clock").toString(), "10:30:00");
         });
 
         it("regression: 'char' and 'string' now resolve to distinct data types", async () => {
@@ -126,9 +129,12 @@ describe({
 
           const found = await table.getRecord(record.getID());
           assert(found, "Expected to find the inserted record");
-          assertEquals(found!.get("day").toString(), "2024-03-01");
-          assertEquals(found!.get("moment").toString(), "2024-03-01T00:00:00");
-          assertEquals(found!.get("clock").toString(), "00:00:00");
+          assertEquals(found!.getObject("day").toString(), "2024-03-01");
+          assertEquals(
+            found!.getObject("moment").toString(),
+            "2024-03-01T00:00:00",
+          );
+          assertEquals(found!.getObject("clock").toString(), "00:00:00");
         });
       },
     });
@@ -211,11 +217,13 @@ describe({
         });
 
         it("DateTimeDataType - parses an ISO string", () => {
+          // DateTimeDataType's JSON form treats the (timezone-less) wall
+          // clock value as UTC, producing a full ISO instant.
           const type = new DateTimeDataType();
           const fromString = type.setValueIntercept(
             "2024-01-15T10:30:00" as any,
           );
-          assertEquals(fromString?.toString(), "2024-01-15T10:30:00");
+          assertEquals(fromString, "2024-01-15T10:30:00Z");
         });
 
         it("TimeDataType - parses a time string, a Date, and passes null through", () => {
@@ -234,11 +242,10 @@ describe({
           assertEquals(type.setValueIntercept(null), null);
         });
 
-        it("TimeDataType - toJSONValue stringifies a PlainTime and passes null through", () => {
+        it("TimeDataType - getObjectIntercept parses a JSON string into a PlainTime and passes null through", () => {
           const type = new TimeDataType();
-          const time = Temporal.PlainTime.from("10:30:00");
-          assertEquals(type.toJSONValue(time), "10:30:00");
-          assertEquals(type.toJSONValue(null), null);
+          assertEquals(type.getObjectIntercept("10:30:00")?.toString(), "10:30:00");
+          assertEquals(type.getObjectIntercept(null), null);
         });
 
         it("UUIDDataType / JSONDataType - pass values through unchanged", () => {
@@ -253,59 +260,6 @@ describe({
           const jsonType = new JSONDataType();
           const value = { nested: true };
           assertEquals(jsonType.setValueIntercept(value), value);
-        });
-      },
-    });
-
-    describe({
-      name: "fromDatabaseValue - parses what pg actually returns",
-      fn: () => {
-        it("NumberDataType - parses the string pg returns for NUMERIC/DECIMAL", () => {
-          const type = new NumberDataType();
-          assertEquals(type.fromDatabaseValue("3.50"), 3.5);
-          assertEquals(type.fromDatabaseValue(null), null);
-        });
-
-        it("IntegerDataType / BooleanDataType / StringDataType / CharDataType / UUIDDataType / JSONDataType - pass the native pg value through unchanged", () => {
-          assertEquals(new IntegerDataType().fromDatabaseValue(42), 42);
-          assertEquals(new BooleanDataType().fromDatabaseValue(true), true);
-          assertEquals(new StringDataType().fromDatabaseValue("hello"), "hello");
-          assertEquals(new CharDataType().fromDatabaseValue("A"), "A");
-          assertEquals(
-            new UUIDDataType().fromDatabaseValue(
-              "550e8400-e29b-41d4-a716-446655440000",
-            ),
-            "550e8400-e29b-41d4-a716-446655440000",
-          );
-          const jsonValue = { nested: true };
-          assertEquals(
-            new JSONDataType().fromDatabaseValue(jsonValue),
-            jsonValue,
-          );
-        });
-
-        it("DateDataType / DateTimeDataType / TimeDataType - parse the native Date pg returns", () => {
-          // Constructed from local field getters, not UTC ones - build via
-          // the local Date constructor to keep this independent of the
-          // machine's timezone.
-          const date = new Date(2024, 0, 15);
-          assertEquals(
-            new DateDataType().fromDatabaseValue(date)?.toString(),
-            "2024-01-15",
-          );
-
-          const dateTime = new Date(2024, 0, 15, 10, 30, 0);
-          assertEquals(
-            new DateTimeDataType().fromDatabaseValue(dateTime)?.toString(),
-            "2024-01-15T10:30:00",
-          );
-
-          // pg returns TIME columns as a plain string, not a Date - confirm
-          // that shape is handled too.
-          assertEquals(
-            new TimeDataType().fromDatabaseValue("10:30:00")?.toString(),
-            "10:30:00",
-          );
         });
       },
     });

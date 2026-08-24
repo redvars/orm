@@ -56,14 +56,11 @@ describe({
           return "VARCHAR" as const;
         }
         validateDefinition() {}
-        toJSONValue(value: string | null) {
-          return value;
-        }
-        fromDatabaseValue(value: string | null) {
-          return value;
-        }
         setValueIntercept(value: string | null) {
           return value === null ? null : value.toUpperCase();
+        }
+        getObjectIntercept(value: string | null) {
+          return value;
         }
         async validateValue() {}
       }

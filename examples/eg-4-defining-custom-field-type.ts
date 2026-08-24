@@ -17,20 +17,21 @@ class EmailType extends IDataType {
     return "VARCHAR";
   }
 
-  toJSONValue(value: string | null): string | null {
-    return value;
-  }
-
   validateDefinition(_columnDefinition: TColumnDefinition) {
     // Throw an error if something in definition is not meeting your expectation.
   }
 
-  fromDatabaseValue(value: string | null): string | null {
-    return value;
-  }
-
+  // Coerces a value passed to Record#set() (or a raw pg-driver value when
+  // hydrating a Record from a query result row) into this type's JSON-safe
+  // representation - what Record#get() returns.
   setValueIntercept(newValue: any): any {
     return newValue;
+  }
+
+  // Converts the stored JSON-safe value back into this type's canonical
+  // representation - what Record#getObject() returns.
+  getObjectIntercept(value: string | null): string | null {
+    return value;
   }
 
   async validateValue(value: unknown): Promise<void> {

@@ -12,10 +12,6 @@ export default class BooleanDataType extends IDataType {
 
   validateDefinition(_definition: TColumnDefinitionStrict) {}
 
-  toJSONValue(value: boolean | null): boolean | null {
-    return value;
-  }
-
   setValueIntercept(
     value: boolean | number | string | null,
   ): boolean | string | number | null {
@@ -27,6 +23,10 @@ export default class BooleanDataType extends IDataType {
       if (value === 0) return false;
       if (value === 1) return true;
     }
+    return value;
+  }
+
+  getObjectIntercept(value: boolean | null): boolean | null {
     return value;
   }
 

@@ -167,9 +167,16 @@ A single row instance ("active record" style). Responsibilities:
 
 - Holds the raw record map (`#record`), a modified-columns set
   (`#columnsModified`), a related-records map (`#related`), and an `#isNew`
-  flag.
+  flag. `#record` stores each column's **JSON-safe** representation (as
+  produced by the data type's `setValueIntercept`), so `get()` returns it
+  directly with no conversion. `#hydrate()` (populating a `Record` from a pg
+  query result row) reuses `setValueIntercept` too, since its implementations
+  must accept the driver's raw shapes as well as user-supplied ones.
 - **Value access:** `set(key, value)` (runs the data type's
-  `setValueIntercept`), `get(key)`, `getJSONValue(key)`, `toJSON(columns?)`.
+  `setValueIntercept`), `get(key)` (returns the stored JSON-safe value),
+  `getObject(key)` (runs the data type's `getObjectIntercept` to convert the
+  stored value to its canonical JS representation, e.g. `Temporal.PlainDate`),
+  `getDisplayValue(key)`, `toJSON(columns?)`.
 - **Relations:** `setRelated(columnName, record)` / `getRelated(columnName)`
   — populated by `Table` after an eager-load, not called directly.
 - **Persistence:** `insert()`, `update()`, `delete()` — each wraps the operation
@@ -255,10 +262,9 @@ one schema.
 |-------------------------|-----------------------------------------------------|
 | `getNativeType()`       | maps to a Postgres `TColumnDataType` (e.g. `VARCHAR`)|
 | `validateDefinition()`  | validates the column definition at define-time      |
-| `fromDatabaseValue()`   | parses a raw pg-driver value (e.g. `Date`) into the canonical JS representation (e.g. `Temporal.PlainDate`) when hydrating a `Record` from a query result row |
-| `setValueIntercept()`   | coerces a user-supplied value on `Record.set` into the same canonical representation - more lenient than `fromDatabaseValue`, since it must also accept whatever shapes callers pass in |
-| `toJSONValue()`         | serializes the canonical representation for `toJSON` / JSON output (e.g. a UTC ISO instant for `datetime`) |
-| `getDisplayValue()`     | optional human-friendly formatting; defaults to the JSON representation |
+| `setValueIntercept()`   | coerces a value into this type's JSON-safe representation (e.g. a UTC ISO string for `Temporal.PlainDate`) - this is what's stored on the record and returned by `Record.get()`. Used both for user-supplied values on `Record.set` and for raw pg-driver values when hydrating a `Record` from a query result row, so implementations must accept both shapes |
+| `getObjectIntercept()`  | converts the stored JSON-safe value back into this type's canonical JS representation (e.g. `Temporal.PlainDate`), used by `Record.getObject()` |
+| `getDisplayValue()`     | optional human-friendly formatting; defaults to stringifying the JSON-safe value |
 | `validateValue()`       | async value validation before persistence           |
 
 Built-in implementations live in `src/data-types/types/` (Boolean, Char, Date,

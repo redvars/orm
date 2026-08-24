@@ -43,18 +43,14 @@ describe({
           return "VARCHAR";
         }
 
-        toJSONValue(value: string | null): string | null {
-          return value;
-        }
-
         validateDefinition(_fieldDefinition: TColumnDefinition) {}
-
-        fromDatabaseValue(value: string | null): string | null {
-          return value;
-        }
 
         setValueIntercept(newValue: any): any {
           return newValue;
+        }
+
+        getObjectIntercept(value: string | null): string | null {
+          return value;
         }
 
         async validateValue(value: unknown): Promise<void> {

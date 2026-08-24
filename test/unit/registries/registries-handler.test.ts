@@ -12,13 +12,10 @@ class FakeDataType extends IDataType {
     return "VARCHAR" as const;
   }
   validateDefinition() {}
-  toJSONValue(value: unknown) {
-    return value as any;
-  }
-  fromDatabaseValue(value: unknown) {
+  setValueIntercept(value: unknown): any {
     return value;
   }
-  setValueIntercept(value: unknown) {
+  getObjectIntercept(value: unknown): any {
     return value;
   }
   async validateValue() {}

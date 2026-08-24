@@ -10,15 +10,15 @@ export default class StringDataType extends IDataType {
     return "VARCHAR";
   }
 
-  toJSONValue(value: string | null): string | null {
-    return value;
-  }
-
   validateDefinition(_definition: TColumnDefinitionStrict) {}
 
   setValueIntercept(value: string | number | null): string | null {
     if (value === null) return null;
     return String(value);
+  }
+
+  getObjectIntercept(value: string | null): string | null {
+    return value;
   }
 
   async validateValue() {}

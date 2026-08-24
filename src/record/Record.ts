@@ -1,4 +1,4 @@
-import { type JSONValue, type Logger, type UUID4 } from "../../deps.ts";
+import { type Logger, type UUID4 } from "../../deps.ts";
 import type { TRecord } from "../types.ts";
 import type Table from "../table/Table.ts";
 import type ColumnDefinitionHandler from "../table/ColumnDefinitionHandler.ts";
@@ -7,7 +7,6 @@ import type Query from "../query/Query.ts";
 import { FieldValidationError } from "../errors/FieldValidationError.ts";
 import { generateUUID, logSQLQuery } from "../utils.ts";
 import ORMError from "../errors/ORMError.ts";
-import { fromDatabaseValue } from "../data-types/nativeTypeUtils.ts";
 
 export default class Record {
   #isNew = false;
@@ -84,19 +83,28 @@ export default class Record {
     }
   }
 
+  /**
+   * Returns the column's JSON-safe representation (e.g. an ISO string for
+   * date/time types) - this is what's stored on the record internally, so
+   * no conversion happens here. Use `getObject()` for the canonical JS
+   * representation (e.g. `Temporal.PlainDate`).
+   */
   get(key: string): any {
     const record = this.#getRawRecord();
     if (this.#table.getColumnSchema(key)) return record[key];
     return null;
   }
 
-  getJSONValue(key: string): JSONValue {
+  /**
+   * Returns the column's canonical JS representation (e.g.
+   * `Temporal.PlainDate`), converted on demand from the stored JSON-safe
+   * value via the column's `IDataType#getObjectIntercept`.
+   */
+  getObject(key: string): any {
     const record = this.#getRawRecord();
     const dataType = this.#table.getColumnSchema(key)?.getColumnType();
     if (dataType && typeof record[key] !== "undefined") {
-      const jsonValue = <JSONValue> dataType.toJSONValue(record[key]);
-      if (typeof jsonValue === "undefined") return null;
-      return jsonValue;
+      return dataType.getObjectIntercept(record[key]);
     }
     return null;
   }
@@ -112,9 +120,9 @@ export default class Record {
 
   /**
    * Populates a column from a raw value as returned by the pg driver (e.g. a
-   * native `Date` for a DATE/TIMESTAMP column), as opposed to `set()` which
-   * accepts user-supplied values. Converted generically by the column's
-   * native SQL type rather than by its `IDataType`.
+   * native `Date` for a DATE/TIMESTAMP column). Reuses `setValueIntercept`
+   * (the same conversion `set()` uses for user-supplied values) since its
+   * implementations must already accept the driver's raw shapes.
    */
   #hydrate(key: string, value: any): void {
     const record = this.#getRawRecord();
@@ -122,7 +130,7 @@ export default class Record {
     if (field) {
       record[key] = typeof value === "undefined"
         ? null
-        : fromDatabaseValue(field.getNativeType(), value);
+        : field.getColumnType().setValueIntercept(value);
       this.#columnsModified[key] = true;
     }
   }
@@ -235,10 +243,8 @@ export default class Record {
       .filter((field: ColumnDefinitionHandler) => {
         return !columns || columns.includes(field.getName());
       })
-      .map((columnSchema: ColumnDefinitionHandler) => {
-        rawRecord[columnSchema.getName()] = columnSchema
-          .getColumnType()
-          .toJSONValue(this.get(columnSchema.getName()));
+      .forEach((columnSchema: ColumnDefinitionHandler) => {
+        rawRecord[columnSchema.getName()] = this.get(columnSchema.getName());
       });
     return rawRecord;
   }
